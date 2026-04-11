@@ -21,7 +21,7 @@ def smart_clean(df):
     # إعادة تسمية الأعمدة إذا وجدت في القاموس
     df = df.rename(columns=mapping)
     # تنظيف البيانات من الفراغات
-    df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
+    df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
     return df
 
 # 1. قراءة البيانات المحفوظة مسبقاً
