@@ -91,7 +91,7 @@ tab_upload, tab_manual = st.tabs(["📥 رفع ومعالجة الملفات", "
 with tab_upload:
     # منطقة رفع الملفات
     with st.sidebar:
-        st.header("⚙️ الإعدادات")
+        st.header("⚙️ الاضافات ")
         uploaded_file = st.file_uploader("ارفع ملف الإكسيل الرئيسي", type=['xlsx'])
         
     if uploaded_file:
