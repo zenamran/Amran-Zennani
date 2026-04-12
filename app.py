@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 # إعدادات الصفحة
-st.set_page_config(page_title="نظام الموردين الذكي", layout="wide")
+st.set_page_config(page_title="نظام الموردين الشامل", layout="wide")
 
 # تحسين المظهر ودعم اللغة العربية
 st.markdown("""
@@ -16,97 +16,99 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# وظيفة الترتيب الذكي المتطور
 def smart_clean(df):
-    # محرك بحث عن العناوين (فرنسي، إنجليزي، عربي)
     mapping = {
         'N°': 'الرقم',
-        'Désignation': 'اسم المورد', 'Designation': 'اسم المورد', 'الشركة': 'اسم المورد',
-        'Adresse': 'العنوان', 'Address': 'العنوان', 'العنوان': 'العنوان',
-        'Tél': 'الهاتف الثابت', 'Tel': 'الهاتف الثابت', 'Fix': 'الهاتف الثابت',
-        'Mobile': 'رقم المحمول', 'الجوّال': 'رقم المحمول', 'Phone': 'رقم المحمول',
+        'Désignation': 'اسم المورد', 'Designation': 'اسم المورد',
+        'Adresse': 'العنوان', 'Address': 'العنوان',
+        'Tél': 'الهاتف', 'Tel': 'الهاتف', 'Tél/Mob': 'الهاتف',
+        'Mobile': 'رقم المحمول', 'Mob': 'رقم المحمول',
         'E-mail': 'البريد الإلكتروني', 'Email': 'البريد الإلكتروني',
         'Fax': 'الفاكس'
     }
     
-    # 1. إذا كانت الأعمدة "Unnamed"، نبحث عن أول سطر يحتوي على كلمات مفتاحية
-    if "Unnamed" in str(df.columns):
-        # البحث عن سطر العناوين الحقيقي في أول 5 صفوف
-        for i in range(min(len(df), 5)):
-            row_values = df.iloc[i].astype(str).tolist()
-            if any(key in str(row_values) for key in mapping.keys()):
-                df.columns = df.iloc[i]
-                df = df.iloc[i+1:].reset_index(drop=True)
-                break
+    # محاولة العثور على رأس الجدول إذا كان هناك صفوف فارغة
+    for i in range(min(len(df), 10)):
+        row = df.iloc[i].astype(str).tolist()
+        if any(str(k).lower() in str(row).lower() for k in mapping.keys()):
+            df.columns = df.iloc[i]
+            df = df.iloc[i+1:].reset_index(drop=True)
+            break
 
-    # 2. إعادة تسمية الأعمدة بناءً على القاموس
+    # إعادة تسمية الأعمدة
     new_cols = {}
     for col in df.columns:
-        col_str = str(col).strip()
-        for key, val in mapping.items():
-            if key.lower() in col_str.lower():
-                new_cols[col] = val
+        c = str(col).strip()
+        for k, v in mapping.items():
+            if k.lower() in c.lower():
+                new_cols[col] = v
                 break
-    
     df = df.rename(columns=new_cols)
     
-    # 3. تنظيف البيانات من الفراغات والقيم الفارغة
+    # تنظيف البيانات
     df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
-    df = df.dropna(how='all')
+    df = df.dropna(subset=[df.columns[1]]) if len(df.columns) > 1 else df.dropna(how='all')
     return df
 
-st.title("🛡️ بوابة إدارة الموردين الذكية")
+st.title("🛡️ بوابة الموردين الذكية (دعم جميع الصفحات)")
 
-# استخدام Session State لحفظ البيانات أثناء الجلسة
 if 'main_data' not in st.session_state:
     st.session_state.main_data = pd.DataFrame()
 
-# منطقة الإدخال والرفع
-tab1, tab2 = st.tabs(["📥 رفع ملف إكسيل", "➕ إضافة مورد يدوياً"])
+uploaded_file = st.file_uploader("ارفع ملف الإكسيل الذي يحتوي على صفحات متعددة", type=['xlsx'])
 
-with tab1:
-    uploaded_file = st.file_uploader("ارفع قائمة الموردين غير المرتبة", type=['xlsx', 'csv'])
-    if uploaded_file:
-        try:
-            raw_df = pd.read_excel(uploaded_file) if uploaded_file.name.endswith('xlsx') else pd.read_csv(uploaded_file)
-            if st.button("🪄 ترتيب وحفظ القائمة المرفوعة"):
-                cleaned = smart_clean(raw_df)
-                st.session_state.main_data = pd.concat([st.session_state.main_data, cleaned], ignore_index=True).drop_duplicates()
-                st.success("تم الترتيب والدمج بنجاح!")
-        except Exception as e:
-            st.error(f"خطأ في قراءة الملف: {e}")
-
-with tab2:
-    with st.form("manual_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            m_Numéro =st.text_input("االرقم")
-            m_name = st.text_input("اسم المورد/الشركة")
-            m_phone = st.text_input("رقم الهاتف")
-        with col2:
-            m_cat = st.text_input("العنوان/الولاية")
-            m_email = st.text_input("البريد الإلكتروني")
-            m_fax = st.text_input("رقم الثابت")
+if uploaded_file:
+    # قراءة أسماء جميع الصفحات في الملف
+    xl = pd.ExcelFile(uploaded_file)
+    sheet_names = xl.sheet_names
+    
+    st.write(f"📂 تم العثور على {len(sheet_names)} صفحات في الملف.")
+    
+    # خيار لاختيار صفحات محددة أو دمج الكل
+    selected_sheets = st.multiselect("اختر الصفحات التي تريد استيرادها:", sheet_names, default=sheet_names)
+    
+    if st.button("🪄 معالجة ودمج الصفحات المختارة"):
+        all_sheets_df = []
+        for sheet in selected_sheets:
+            df_sheet = pd.read_excel(uploaded_file, sheet_name=sheet)
+            cleaned_sheet = smart_clean(df_sheet)
+            cleaned_sheet['المصدر (الصفحة)'] = sheet # إضافة عمود لمعرفة مصدر البيانات
+            all_sheets_df.append(cleaned_sheet)
         
-        if st.form_submit_button("إضافة إلى القاعدة"):
-            new_row = pd.DataFrame([{"اسم المورد": m_name, "رقم المحمول": m_phone, "العنوان": m_cat, "البريد الإلكتروني": m_email}])
-            st.session_state.main_data = pd.concat([st.session_state.main_data, new_row], ignore_index=True)
-            st.success("تمت الإضافة اليدوية بنجاح!")
+        if all_sheets_df:
+            st.session_state.main_data = pd.concat(all_sheets_df, ignore_index=True).drop_duplicates()
+            st.success(f"✅ تم دمج {len(selected_sheets)} صفحات بنجاح!")
 
-# عرض قاعدة البيانات والبحث
+# إضافة مورد يدوياً
+with st.expander("➕ إضافة مورد جديد يدوياً إلى القائمة"):
+    with st.form("manual_entry"):
+        c1, c2 = st.columns(2)
+        with c1:
+            name = st.text_input("اسم المورد")
+            phone = st.text_input("الهاتف/المحمول")
+        with c2:
+            addr = st.text_input("العنوان")
+            email = st.text_input("البريد الإلكتروني")
+        
+        if st.form_submit_button("إضافة الآن"):
+            new_data = pd.DataFrame([{"اسم المورد": name, "الهاتف": phone, "العنوان": addr, "البريد الإلكتروني": email, "المصدر (الصفحة)": "إدخال يدوي"}])
+            st.session_state.main_data = pd.concat([st.session_state.main_data, new_data], ignore_index=True)
+            st.success("تمت الإضافة!")
+
+# عرض النتائج والبحث
 st.markdown("---")
 if not st.session_state.main_data.empty:
-    search = st.text_input("🔍 ابحث في قاعدة البيانات الحالية:")
+    search = st.text_input("🔍 ابحث في جميع الموردين (من كافة الصفحات):")
     display_df = st.session_state.main_data
     
     if search:
         mask = display_df.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
         display_df = display_df[mask]
     
+    st.write(f"عرض `{len(display_df)}` مورد.")
     st.dataframe(display_df, use_container_width=True, hide_index=True)
     
-    # تصدير البيانات نظيفة
     csv = display_df.to_csv(index=False).encode('utf-8-sig')
-    st.download_button("📥 تحميل قاعدة البيانات كملف CSV نظيف", data=csv, file_name="Suppliers_Database.csv")
+    st.download_button("📥 تحميل قاعدة البيانات الموحدة (CSV)", data=csv, file_name="All_Suppliers_Combined.csv")
 else:
-    st.info("بانتظار إضافة بيانات أو رفع ملف للبدء.")
+    st.info("قم برفع ملف الإكسيل للبدء في دمج الصفحات.")
