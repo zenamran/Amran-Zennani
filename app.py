@@ -80,11 +80,13 @@ with tab2:
     with st.form("manual_form"):
         col1, col2 = st.columns(2)
         with col1:
+            m_Numéro =st.text_input("االرقم")
             m_name = st.text_input("اسم المورد/الشركة")
             m_phone = st.text_input("رقم الهاتف")
         with col2:
             m_cat = st.text_input("العنوان/الولاية")
             m_email = st.text_input("البريد الإلكتروني")
+            m_fax = st.text_input("رقم الثابت")
         
         if st.form_submit_button("إضافة إلى القاعدة"):
             new_row = pd.DataFrame([{"اسم المورد": m_name, "رقم المحمول": m_phone, "العنوان": m_cat, "البريد الإلكتروني": m_email}])
