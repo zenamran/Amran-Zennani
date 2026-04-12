@@ -54,19 +54,21 @@ def ultra_robust_clean(df):
             best_header_row = i
 
     if best_header_row != -1:
-        df.columns = [str(c).strip() for c in df.iloc[best_header_row]]
+        new_cols = [str(c).strip() for c in df.iloc[best_header_row]]
+        # Éviter les colonnes vides ou dupliquées
+        df.columns = [c if c != "" else f"Col_{idx}" for idx, c in enumerate(new_cols)]
         df = df.iloc[best_header_row + 1:].reset_index(drop=True)
 
     # Renommage intelligent
-    new_cols = {}
+    rename_dict = {}
     for col in df.columns:
         c_low = str(col).lower().strip()
         for target, keys in mapping.items():
             if any(k in c_low for k in keys):
-                new_cols[col] = target
+                rename_dict[col] = target
                 break
     
-    df = df.rename(columns=new_cols)
+    df = df.rename(columns=rename_dict)
 
     # Conserver uniquement les colonnes identifiées
     final_cols = [v for v in mapping.keys() if v in df.columns]
@@ -78,7 +80,6 @@ def ultra_robust_clean(df):
 
     # Supprimer les lignes où le nom du fournisseur est vide ou ressemble à un en-tête répété
     if 'Nom du Fournisseur' in df.columns:
-        # On évite les lignes qui contiennent le mot 'Nom' ou 'Désignation' comme valeur (doublons d'en-tête)
         df = df[df['Nom du Fournisseur'] != ""]
         df = df[~df['Nom du Fournisseur'].str.lower().isin(['nom', 'nom du fournisseur', 'désignation', 'designation'])]
     
@@ -113,9 +114,7 @@ with tab1:
                 progress = st.progress(0)
                 
                 for idx, sheet in enumerate(selected_sheets):
-                    # Lecture de la feuille
                     raw_df = pd.read_excel(uploaded_file, sheet_name=sheet)
-                    # Nettoyage avec détection d'en-tête
                     clean_df = ultra_robust_clean(raw_df)
                     
                     if not clean_df.empty:
@@ -126,9 +125,14 @@ with tab1:
                 
                 if temp_frames:
                     new_data = pd.concat(temp_frames, axis=0, ignore_index=True)
-                    # Fusion et suppression des doublons stricts
-                    st.session_state.master_db = pd.concat([st.session_state.master_db, new_data], ignore_index=True).drop_duplicates(subset=['Nom du Fournisseur'], keep='first')
-                    st.success(f"✅ Succès : {len(new_data)} nouveaux fournisseurs importés.")
+                    
+                    # Sécurité : Vérifier si le nom du fournisseur existe avant le drop_duplicates
+                    if 'Nom du Fournisseur' in new_data.columns:
+                        combined = pd.concat([st.session_state.master_db, new_data], ignore_index=True)
+                        st.session_state.master_db = combined.drop_duplicates(subset=['Nom du Fournisseur'], keep='first')
+                        st.success(f"✅ Succès : {len(new_data)} fournisseurs traités.")
+                    else:
+                        st.error("❌ Erreur : Impossible de trouver la colonne 'Nom du Fournisseur' dans les données nettoyées.")
                 else:
                     st.warning("⚠️ Aucun donnée exploitable trouvée dans ces feuilles.")
                     
@@ -182,7 +186,6 @@ if not st.session_state.master_db.empty:
     
     col_btns = st.columns([1, 1, 2])
     with col_btns[0]:
-        # Export Excel
         towrite = io.BytesIO()
         with pd.ExcelWriter(towrite, engine='openpyxl') as writer:
             view_df.to_excel(writer, index=False, sheet_name='Base_Fournisseurs')
