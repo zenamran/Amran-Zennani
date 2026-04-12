@@ -2,148 +2,189 @@ import streamlit as st
 import pandas as pd
 import io
 
-# Configuration de la page
-st.set_page_config(page_title="Gestion des Fournisseurs v2.0", layout="wide")
+# إعدادات الصفحة الأساسية
+st.set_page_config(page_title="نظام إدارة الموردين الاحترافي", layout="wide")
 
-# Style CSS pour une interface moderne
+# تطبيق التصميم العربي المتوافق
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
     html, body, [class*="css"] {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-family: 'Cairo', sans-serif;
+        direction: RTL; text-align: right;
     }
-    .main { background-color: #f8f9fa; }
-    .stDataFrame { background-color: white; border-radius: 10px; padding: 10px; }
+    .stDataFrame { direction: RTL; }
+    .stAlert { direction: RTL; text-align: right; }
+    /* تحسين شكل التبويبات العلوية */
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-def ultra_robust_clean(df):
-    """Fonction de nettoyage avancée pour éviter les erreurs de type de données"""
+def robust_clean(df):
+    """دالة تنظيف فائقة القوة للتعامل مع كافة أنواع البيانات"""
     if df.empty:
         return df
 
-    # Conversion forcée de tout le DataFrame en chaînes de caractères pour éviter l'erreur 'float found'
-    df = df.astype(str).replace(['nan', 'None', 'NaN', 'null'], '')
-
-    # Dictionnaire de mappage des colonnes
+    # قاموس العناوين الذكي المحدث ليشمل اسم الشركة
     mapping = {
-        'Nom du Fournisseur': ['nom', 'fournisseur', 'designation', 'désignation', 'société', 'company', 'اسم'],
-        'Adresse': ['adresse', 'address', 'lieu', 'wilaya', 'عنوان'],
-        'Téléphone': ['tél', 'tel', 'phone', 'fixe', 'هاتف'],
-        'Mobile': ['mobile', 'mob', 'tél/mob', 'محمول'],
-        'E-mail': ['email', 'e-mail', 'mail', 'البريد'],
-        'Fax': ['fax', 'الفاكس']
+        'designation': 'اسم الشركة/المورد', 'الشركة': 'اسم الشركة/المورد', 'nom': 'اسم الشركة/المورد',
+        'adresse': 'العنوان', 'address': 'العنوان',
+        'tél': 'الهاتف', 'tel': 'الهاتف', 'phone': 'الهاتف',
+        'mobile': 'رقم المحمول', 'mob': 'رقم المحمول',
+        'email': 'البريد الإلكتروني', 'e-mail': 'البريد الإلكتروني',
+        'fax': 'الفاكس'
     }
 
-    # 1. Recherche automatique de l'en-tête
-    header_idx = 0
-    found_header = False
+    # 1. البحث عن سطر الرأس (Header)
+    actual_header_index = 0
+    found = False
     for i in range(min(len(df), 20)):
-        row_content = " ".join(df.iloc[i].values).lower()
-        if any(keyword in row_content for keyword in ['désign', 'design', 'nom', 'tél', 'tel']):
-            header_idx = i
-            found_header = True
+        row_values = [str(val).lower() for val in df.iloc[i].values if pd.notna(val)]
+        if any(key in " ".join(row_values) for key in mapping.keys()):
+            actual_header_index = i
+            found = True
             break
     
-    if found_header:
-        df.columns = [str(c).strip() for c in df.iloc[header_idx]]
-        df = df.iloc[header_idx + 1:].reset_index(drop=True)
+    if found:
+        df.columns = df.iloc[actual_header_index]
+        df = df.iloc[actual_header_index + 1:].reset_index(drop=True)
 
-    # 2. Nettoyage des noms de colonnes et mappage
+    # 2. توحيد أسماء الأعمدة وتنظيفها
+    df.columns = [str(c).strip() if pd.notna(c) else f"Column_{i}" for i, c in enumerate(df.columns)]
+    
     new_cols = {}
     for col in df.columns:
-        c_low = str(col).lower().strip()
-        for target, keys in mapping.items():
-            if any(k in c_low for k in keys):
-                new_cols[col] = target
+        for key, val in mapping.items():
+            if key.lower() in col.lower():
+                new_cols[col] = val
                 break
     
     df = df.rename(columns=new_cols)
 
-    # 3. Sécurité : Si 'Nom du Fournisseur' n'est pas détecté, prendre la 1ère colonne utile
-    if 'Nom du Fournisseur' not in df.columns:
-        cols = [c for c in df.columns if 'n°' not in str(c).lower()]
-        if cols:
-            df = df.rename(columns={cols[0]: 'Nom du Fournisseur'})
+    # 3. تنظيف البيانات
+    def clean_cell(x):
+        if pd.isna(x): return ""
+        return str(x).strip()
 
-    # 4. Garder uniquement les colonnes identifiées
-    important_cols = [v for v in mapping.keys() if v in df.columns]
-    if important_cols:
-        df = df[important_cols]
-
-    # 5. Nettoyage final des espaces et suppression des lignes vides
-    df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
-    if 'Nom du Fournisseur' in df.columns:
-        df = df[df['Nom du Fournisseur'] != ""]
+    df = df.map(clean_cell)
     
-    return df.reset_index(drop=True)
+    # 4. تصفية الأعمدة غير المرغوب فيها (الإبقاء على المعرف منها فقط)
+    important_cols = list(set(mapping.values()))
+    existing_important = [c for c in important_cols if c in df.columns]
+    
+    if existing_important:
+        df = df[existing_important]
 
-st.title("🛡️ Gestionnaire de Fournisseurs Multi-Feuilles")
+    # 5. حذف الصفوف الفارغة تماماً
+    df = df.replace("", pd.NA).dropna(how='all').reset_index(drop=True)
+    
+    return df
 
-if 'db' not in st.session_state:
-    st.session_state.db = pd.DataFrame()
+st.title("🛡️ بوابة الموردين الذكية (الإصدار المستقر)")
 
-# Sidebar pour le chargement
-with st.sidebar:
-    st.header("📁 Importation")
-    file = st.file_uploader("Fichier Excel (.xlsx)", type=['xlsx'])
+if 'final_db' not in st.session_state:
+    st.session_state.final_db = pd.DataFrame()
 
-if file:
-    try:
-        excel_obj = pd.ExcelFile(file)
-        sheets = excel_obj.sheet_names
+# تقسيم الواجهة إلى تبويبات
+tab_upload, tab_manual = st.tabs(["📥 رفع ومعالجة الملفات", "➕ إضافة مورد يدوياً"])
+
+with tab_upload:
+    # منطقة رفع الملفات
+    with st.sidebar:
+        st.header("⚙️ الإعدادات")
+        uploaded_file = st.file_uploader("ارفع ملف الإكسيل الرئيسي", type=['xlsx'])
         
-        st.info(f"✅ {len(sheets)} onglets détectés dans le fichier.")
-        selected_sheets = st.multiselect("Sélectionnez les feuilles à fusionner :", sheets, default=sheets)
-        
-        if st.button("🚀 Fusionner les données"):
-            all_data = []
-            progress = st.progress(0)
+    if uploaded_file:
+        try:
+            xl = pd.ExcelFile(uploaded_file)
+            all_sheets = xl.sheet_names
             
-            for i, s_name in enumerate(selected_sheets):
-                df_raw = pd.read_excel(file, sheet_name=s_name)
-                # Utilisation de la fonction ultra-robuste
-                df_clean = ultra_robust_clean(df_raw)
-                if not df_clean.empty:
-                    df_clean['Source'] = s_name
-                    all_data.append(df_clean)
-                progress.progress((i + 1) / len(selected_sheets))
+            st.info(f"📁 تم اكتشاف {len(all_sheets)} فئات (صفحات) في الملف.")
             
-            if all_data:
-                st.session_state.db = pd.concat(all_data, axis=0, ignore_index=True, sort=False)
-                st.success(f"Traitement terminé : {len(st.session_state.db)} fournisseurs trouvés.")
-            else:
-                st.error("Aucune donnée valide n'a pu être extraite.")
+            # اختيار الصفحات
+            selected = st.multiselect("اختر الأقسام التي تريد دمجها:", all_sheets, default=all_sheets)
+            
+            if st.button("🚀 معالجة ودمج كافة البيانات"):
+                combined_data = []
+                progress_bar = st.progress(0)
                 
-    except Exception as e:
-        st.error(f"Erreur de lecture : {e}")
+                for index, sheet in enumerate(selected):
+                    try:
+                        df_raw = pd.read_excel(uploaded_file, sheet_name=sheet)
+                        cleaned = robust_clean(df_raw)
+                        if not cleaned.empty:
+                            cleaned['القسم'] = sheet
+                            combined_data.append(cleaned)
+                    except Exception as e:
+                        st.error(f"خطأ في صفحة {sheet}: {str(e)}")
+                    progress_bar.progress((index + 1) / len(selected))
+                
+                if combined_data:
+                    # دمج الجداول
+                    st.session_state.final_db = pd.concat(combined_data, axis=0, ignore_index=True, sort=False)
+                    st.success("✨ تم بناء قاعدة البيانات الموحدة بنجاح!")
+                else:
+                    st.warning("لم يتم العثور على بيانات صالحة في الصفحات المختارة.")
 
-# Zone d'affichage et de recherche
-if not st.session_state.db.empty:
-    st.divider()
-    search = st.text_input("🔍 Rechercher un nom, un téléphone ou une ville :")
+        except Exception as e:
+            st.error(f"فشل في فتح الملف: {str(e)}")
+
+with tab_manual:
+    st.header("إضافة مورد جديد يدوياً")
+    with st.form("manual_entry_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            m_company = st.text_input("اسم الشركة/المورد *")
+            m_phone = st.text_input("رقم الهاتف")
+            m_mobile = st.text_input("رقم المحمول")
+        with col2:
+            m_category = st.text_input("القسم/الفئة")
+            m_address = st.text_input("العنوان")
+            m_email = st.text_input("البريد الإلكتروني")
+        
+        submitted = st.form_submit_button("حفظ المورد في القائمة")
+        
+        if submitted:
+            if m_company:
+                new_row = pd.DataFrame([{
+                    "اسم الشركة/المورد": m_company,
+                    "الهاتف": m_phone,
+                    "رقم المحمول": m_mobile,
+                    "العنوان": m_address,
+                    "البريد الإلكتروني": m_email,
+                    "القسم": m_category
+                }])
+                st.session_state.final_db = pd.concat([st.session_state.final_db, new_row], ignore_index=True)
+                st.success(f"✅ تم إضافة المورد '{m_company}' بنجاح!")
+            else:
+                st.error("يرجى إدخال اسم الشركة على الأقل.")
+
+# عرض قاعدة البيانات والبحث والتحميل
+if not st.session_state.final_db.empty:
+    st.markdown("---")
     
-    res_df = st.session_state.db
-    if search:
-        mask = res_df.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
-        res_df = res_df[mask]
+    # محرك بحث ذكي
+    search_query = st.text_input("🔍 ابحث عن مورد، هاتف، أو فئة:", placeholder="اكتب هنا للبحث...")
     
-    st.write(f"Affichage de **{len(res_df)}** lignes.")
-    st.dataframe(res_df, use_container_width=True, hide_index=True)
+    df_to_show = st.session_state.final_db
+    if search_query:
+        mask = df_to_show.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
+        df_to_show = df_to_show[mask]
+
+    st.write(f"📊 تم العثور على **{len(df_to_show)}** مورد.")
+    st.dataframe(df_to_show, use_container_width=True, hide_index=True)
+
+    # تصدير البيانات
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df_to_show.to_excel(writer, index=False, sheet_name='Database')
     
-    # Exportation
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-        res_df.to_excel(writer, index=False, sheet_name='Resultats')
-    
-    st.download_button("📥 Télécharger la base unifiée (Excel)", 
-                       data=buf.getvalue(), 
-                       file_name="Base_Fournisseurs_Pro.xlsx",
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    st.download_button(
+        label="📥 تحميل قاعدة البيانات الموحدة (Excel)",
+        data=buffer.getvalue(),
+        file_name="Final_Suppliers_Database.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 else:
-    st.markdown("""
-    ### Bienvenue
-    1. Chargez votre fichier Excel dans la barre latérale.
-    2. Choisissez les onglets à inclure.
-    3. Cliquez sur **Fusionner** pour nettoyer automatiquement tous vos fournisseurs.
-    """)
+    if not uploaded_file:
+        st.info("قم برفع ملف الإكسيل أو استخدم تبويب الإضافة اليدوية للبدء.")
