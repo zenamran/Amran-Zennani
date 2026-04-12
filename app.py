@@ -1,135 +1,161 @@
 import streamlit as st
 import pandas as pd
+import io
 
-# إعدادات الصفحة
+# إعدادات الصفحة الأساسية
 st.set_page_config(page_title="نظام إدارة الموردين الاحترافي", layout="wide")
 
-# تصميم الواجهة ودعم اللغة العربية
+# تطبيق التصميم العربي المتوافق
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
-    html, body, [class*="css"]  {
+    html, body, [class*="css"] {
         font-family: 'Cairo', sans-serif;
         direction: RTL; text-align: right;
     }
     .stDataFrame { direction: RTL; }
-    div[data-testid="stExpander"] { text-align: right; }
+    .stAlert { direction: RTL; text-align: right; }
+    /* تحسين شكل التبويبات العلوية */
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-def smart_clean(df):
-    """وظيفة ذكية لتنظيف وترتيب بيانات الإكسيل مهما كان شكلها"""
+def robust_clean(df):
+    """دالة تنظيف فائقة القوة للتعامل مع كافة أنواع البيانات"""
     if df.empty:
         return df
 
-    # قاموس المصطلحات للبحث عن العناوين (فرنسي، إنجليزي، عربي)
+    # قاموس العناوين الذكي
     mapping = {
-        'N°': 'الرقم',
-        'Désignation': 'اسم المورد', 'Designation': 'اسم المورد',
-        'Adresse': 'العنوان', 'Address': 'العنوان',
-        'Tél': 'الهاتف', 'Tel': 'الهاتف', 'Tél/Mob': 'الهاتف',
-        'Mobile': 'رقم المحمول', 'Mob': 'رقم المحمول',
-        'E-mail': 'البريد الإلكتروني', 'Email': 'البريد الإلكتروني',
-        'Fax': 'الفاكس'
+        'designation': 'اسم المورد', 'الشركة': 'اسم المورد', 'nom': 'اسم المورد',
+        'adresse': 'العنوان', 'address': 'العنوان',
+        'tél': 'الهاتف', 'tel': 'الهاتف', 'phone': 'الهاتف',
+        'mobile': 'رقم المحمول', 'mob': 'رقم المحمول',
+        'email': 'البريد الإلكتروني', 'e-mail': 'البريد الإلكتروني',
+        'fax': 'الفاكس'
     }
-    
-    # 1. محاولة العثور على سطر الرأس الحقيقي
-    found_header = False
-    for i in range(min(len(df), 15)):
-        row_str = " ".join(df.iloc[i].astype(str).tolist()).lower()
-        if any(key.lower() in row_str for key in ['désignation', 'tél', 'adresse']):
-            df.columns = df.iloc[i]
-            df = df.iloc[i+1:].reset_index(drop=True)
-            found_header = True
+
+    # 1. البحث عن سطر الرأس (Header)
+    actual_header_index = 0
+    found = False
+    for i in range(min(len(df), 20)):
+        row_values = [str(val).lower() for val in df.iloc[i].values if pd.notna(val)]
+        if any(key in " ".join(row_values) for key in mapping.keys()):
+            actual_header_index = i
+            found = True
             break
-            
-    # 2. تنظيف أسماء الأعمدة من الفراغات والقيم غير النصية
-    df.columns = [str(c).strip() for c in df.columns]
     
-    # 3. إعادة تسمية الأعمدة بناءً على القاموس
-    rename_dict = {}
+    if found:
+        df.columns = df.iloc[actual_header_index]
+        df = df.iloc[actual_header_index + 1:].reset_index(drop=True)
+
+    # 2. توحيد أسماء الأعمدة وتنظيفها
+    df.columns = [str(c).strip() if pd.notna(c) else f"Column_{i}" for i, c in enumerate(df.columns)]
+    
+    new_cols = {}
     for col in df.columns:
         for key, val in mapping.items():
             if key.lower() in col.lower():
-                rename_dict[col] = val
+                new_cols[col] = val
                 break
     
-    df = df.rename(columns=rename_dict)
+    df = df.rename(columns=new_cols)
+
+    # 3. تنظيف البيانات (حل مشكلة expected str instance)
+    def clean_cell(x):
+        if pd.isna(x): return ""
+        return str(x).strip()
+
+    df = df.map(clean_cell)
     
-    # 4. إبقاء الأعمدة التي تم التعرف عليها فقط لتوحيد الجداول
-    valid_cols = [v for v in mapping.values() if v in df.columns]
-    if valid_cols:
-        df = df[valid_cols]
+    # 4. تصفية الأعمدة غير المرغوب فيها (الإبقاء على المعرف منها فقط)
+    important_cols = list(set(mapping.values()))
+    existing_important = [c for c in important_cols if c in df.columns]
     
-    # 5. تنظيف البيانات من الفراغات وحذف الصفوف الفارغة
-    df = df.map(lambda x: str(x).strip() if not pd.isna(x) else "")
-    df = df.replace(["nan", "None", ""], pd.NA).dropna(how='all')
+    if existing_important:
+        df = df[existing_important]
+
+    # 5. حذف الصفوف الفارغة تماماً
+    df = df.replace("", pd.NA).dropna(how='all').reset_index(drop=True)
     
     return df
 
-st.title("🛡️ بوابة الموردين الذكية - دمج الصفحات")
+st.title("🛡️ بوابة الموردين الذكية (الإصدار المستقر)")
 
-# استخدام Session State لتخزين البيانات لتبقى ثابتة أثناء التنقل
-if 'all_data' not in st.session_state:
-    st.session_state.all_data = pd.DataFrame()
+if 'final_db' not in st.session_state:
+    st.session_state.final_db = pd.DataFrame()
 
-uploaded_file = st.file_uploader("ارفع ملف الإكسيل (xlsx)", type=['xlsx'])
-
+# منطقة رفع الملفات
+with st.sidebar:
+    st.header("⚙️ الإعدادات")
+    uploaded_file = st.file_uploader("ارفع ملف الإكسيل الرئيسي", type=['xlsx'])
+    
 if uploaded_file:
     try:
         xl = pd.ExcelFile(uploaded_file)
-        sheet_names = xl.sheet_names
+        all_sheets = xl.sheet_names
         
-        st.sidebar.markdown("### 📄 صفحات الملف المكتشفة")
-        selected_sheets = st.sidebar.multiselect("اختر الصفحات للدمج:", sheet_names, default=sheet_names)
+        st.info(f"📁 تم اكتشاف {len(all_sheets)} فئات (صفحات) في الملف.")
         
-        if st.button("🪄 دمج وتنظيم الصفحات المختارة"):
-            combined_list = []
-            for sheet in selected_sheets:
+        # اختيار الصفحات
+        selected = st.multiselect("اختر الأقسام التي تريد دمجها:", all_sheets, default=all_sheets)
+        
+        if st.button("🚀 معالجة ودمج كافة البيانات"):
+            combined_data = []
+            progress_bar = st.progress(0)
+            
+            for index, sheet in enumerate(selected):
                 try:
                     df_raw = pd.read_excel(uploaded_file, sheet_name=sheet)
-                    cleaned = smart_clean(df_raw)
+                    cleaned = robust_clean(df_raw)
                     if not cleaned.empty:
-                        cleaned['التصنيف (الصفحة)'] = sheet
-                        combined_list.append(cleaned)
+                        cleaned['القسم'] = sheet
+                        combined_data.append(cleaned)
                 except Exception as e:
-                    st.warning(f"تعذر معالجة صفحة {sheet}: {e}")
+                    st.error(f"خطأ في صفحة {sheet}: {str(e)}")
+                progress_bar.progress((index + 1) / len(selected))
             
-            if combined_list:
-                # دمج الجداول مع ضمان عدم وجود أخطاء في الفهارس
-                st.session_state.all_data = pd.concat(combined_list, axis=0, ignore_index=True)
-                # حذف الأعمدة المكررة تماماً إن وجدت
-                st.session_state.all_data = st.session_state.all_data.loc[:, ~st.session_state.all_data.columns.duplicated()]
-                st.success(f"✅ تم بنجاح دمج {len(combined_list)} صفحة!")
+            if combined_data:
+                # دمج ذكي يتجاهل اختلاف الأعمدة
+                st.session_state.final_db = pd.concat(combined_data, axis=0, ignore_index=True, sort=False)
+                st.success("✨ تم بناء قاعدة البيانات الموحدة بنجاح!")
             else:
-                st.error("لم يتم العثور على بيانات صالحة في الصفحات المختارة.")
-                
+                st.warning("لم يتم العثور على بيانات صالحة في الصفحات المختارة.")
+
     except Exception as e:
-        st.error(f"خطأ في قراءة الملف: {e}")
+        st.error(f"فشل في فتح الملف: {str(e)}")
 
-# عرض البيانات والبحث والتحميل
-if not st.session_state.all_data.empty:
+# عرض قاعدة البيانات والبحث والتحميل
+if not st.session_state.final_db.empty:
     st.markdown("---")
-    col_search, col_stats = st.columns([3, 1])
-    with col_search:
-        search_term = st.text_input("🔍 ابحث عن مورد، مدينة، أو رقم هاتف:")
-    with col_stats:
-        st.metric("إجمالي الموردين", len(st.session_state.all_data))
-
-    display_df = st.session_state.all_data
-    if search_term:
-        mask = display_df.astype(str).apply(lambda x: x.str.contains(search_term, case=False, na=False)).any(axis=1)
-        display_df = display_df[mask]
-
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
     
-    # زر التحميل
-    csv_data = display_df.to_csv(index=False).encode('utf-8-sig')
+    # محرك بحث ذكي
+    search_query = st.text_input("🔍 ابحث عن مورد، هاتف، أو فئة (مثلاً: Pneumatique):", placeholder="اكتب هنا للبحث...")
+    
+    df_to_show = st.session_state.final_db
+    if search_query:
+        mask = df_to_show.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
+        df_to_show = df_to_show[mask]
+
+    st.write(f"📊 تم العثور على **{len(df_to_show)}** مورد.")
+    st.dataframe(df_to_show, use_container_width=True, hide_index=True)
+
+    # تصدير البيانات
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df_to_show.to_excel(writer, index=False, sheet_name='Database')
+    
     st.download_button(
-        label="📥 تحميل قاعدة البيانات الموحدة (Excel CSV)",
-        data=csv_data,
-        file_name="Global_Suppliers_Database.csv",
-        mime='text/csv'
+        label="📥 تحميل قاعدة البيانات الموحدة (Excel)",
+        data=buffer.getvalue(),
+        file_name="Final_Suppliers_Database.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 else:
-    st.info("قم برفع ملف الإكسيل واختيار الصفحات لبناء قاعدة البيانات.")
+    st.markdown("""
+    ### 👋 مرحباً بك في نظام إدارة الموردين
+    للبدء، يرجى القيام بالآتي:
+    1. ارفع ملف الإكسيل من القائمة الجانبية.
+    2. اختر الصفحات التي تود دمجها (التطبيق يدعم دمج كافة الأقسام).
+    3. اضغط على **معالجة** ليقوم الذكاء الاصطناعي بترتيب العناوين المبعثرة.
+    """)
