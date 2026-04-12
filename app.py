@@ -9,54 +9,51 @@ st.set_page_config(
     layout="wide"
 )
 
-# Style CSS personnalisé pour un look moderne
+# Style CSS pour une interface épurée
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;700&display=swap');
-    html, body, [class*="css"] {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    }
-    .stDataFrame { border-radius: 12px; }
-    .stButton>button { width: 100%; border-radius: 8px; font-weight: bold; }
-    .main { background-color: #fcfcfc; }
+    .stDataFrame { border-radius: 10px; }
+    .stButton>button { border-radius: 5px; height: 3em; }
+    .status-box { padding: 20px; border-radius: 10px; background-color: #f0f2f6; margin-bottom: 20px; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. Logique de nettoyage robuste
-def robust_clean(df):
-    """Nettoie le DataFrame en gérant les types mixtes et les en-têtes miltiples"""
+# 2. Fonction de nettoyage "Ultra-Robuste"
+def ultra_robust_clean(df):
+    """Nettoie le DataFrame en forçant tout en texte pour éviter l'erreur 'float found'"""
     if df.empty:
         return df
 
-    # Conversion forcée en chaînes de caractères pour éviter l'erreur 'float found'
-    # On remplace les valeurs NaN par une chaîne vide
-    df = df.astype(str).replace(['nan', 'None', 'NaN', 'null'], '')
+    # ÉTAPE CRUCIALE : Convertir absolument tout le contenu en chaînes de caractères dès le début
+    # Cela élimine les erreurs liées aux nombres (floats) lors du nettoyage des espaces
+    df = df.fillna('').astype(str)
 
-    # Mappage intelligent des colonnes (Reconnaissance FR/AR/EN)
+    # Dictionnaire de mappage intelligent des colonnes (Français / Arabe / Anglais)
     mapping = {
-        'Nom du Fournisseur': ['nom', 'fournisseur', 'designation', 'désignation', 'société', 'company', 'اسم'],
-        'Adresse': ['adresse', 'address', 'lieu', 'wilaya', 'عنوان'],
-        'Téléphone': ['tél', 'tel', 'phone', 'fixe', 'هاتف'],
-        'Mobile': ['mobile', 'mob', 'tél/mob', 'محمول', 'جوال'],
-        'E-mail': ['email', 'e-mail', 'mail', 'البريد'],
-        'Fax': ['fax', 'الفاكس']
+        'Nom du Fournisseur': ['nom', 'fournisseur', 'designation', 'désignation', 'société', 'company', 'اسم', 'المورد'],
+        'Adresse': ['adresse', 'address', 'lieu', 'wilaya', 'عنوان', 'مقر'],
+        'Téléphone': ['tél', 'tel', 'phone', 'fixe', 'هاتف', 'الفاكس', 'fax'],
+        'Mobile': ['mobile', 'mob', 'tél/mob', 'محمول', 'جوال', 'رقم'],
+        'E-mail': ['email', 'e-mail', 'mail', 'البريد', 'إيميل']
     }
 
-    # Détection de l'index de l'en-tête réel
-    header_idx = 0
-    found_header = False
-    for i in range(min(len(df), 20)):
-        row_str = " ".join(df.iloc[i].tolist()).lower()
-        if any(keyword in row_str for keyword in ['désign', 'design', 'nom', 'tél', 'tel', 'fourniss']):
-            header_idx = i
-            found_header = True
-            break
+    # Recherche de la ligne d'en-tête (parfois l'en-tête n'est pas à la ligne 0)
+    best_header_row = 0
+    max_matches = 0
     
-    if found_header:
-        df.columns = [str(c).strip() for c in df.iloc[header_idx]]
-        df = df.iloc[header_idx + 1:].reset_index(drop=True)
+    # On scanne les 10 premières lignes pour trouver celle qui ressemble à un en-tête
+    for i in range(min(10, len(df))):
+        row_content = " ".join(df.iloc[i].values).lower()
+        matches = sum(1 for keys in mapping.values() if any(k in row_content for k in keys))
+        if matches > max_matches:
+            max_matches = matches
+            best_header_row = i
 
-    # Renommage des colonnes selon les mots-clés
+    if max_matches > 0:
+        df.columns = df.iloc[best_header_row]
+        df = df.iloc[best_header_row + 1:].reset_index(drop=True)
+
+    # Renommage des colonnes
     new_cols = {}
     for col in df.columns:
         c_low = str(col).lower().strip()
@@ -67,127 +64,138 @@ def robust_clean(df):
     
     df = df.rename(columns=new_cols)
 
-    # Sécurité : Si le nom n'est pas détecté
-    if 'Nom du Fournisseur' not in df.columns:
-        useful_cols = [c for c in df.columns if 'n°' not in str(c).lower()]
-        if useful_cols:
-            df = df.rename(columns={useful_cols[0]: 'Nom du Fournisseur'})
-
-    # Garder les colonnes mappées uniquement
-    existing_cols = [v for v in mapping.keys() if v in df.columns]
-    if existing_cols:
-        df = df[existing_cols]
-
-    # Nettoyage final des espaces
-    df = df.apply(lambda x: x.str.strip())
+    # Garder uniquement les colonnes identifiées
+    final_cols = [v for v in mapping.keys() if v in df.columns]
+    if final_cols:
+        df = df[final_cols]
     
-    # Supprimer les lignes vides basées sur le nom
+    # Nettoyage final des espaces (maintenant sécurisé car tout est 'str')
+    for col in df.columns:
+        df[col] = df[col].str.strip()
+
+    # Supprimer les lignes totalement vides ou sans nom de fournisseur
     if 'Nom du Fournisseur' in df.columns:
         df = df[df['Nom du Fournisseur'] != ""]
     
     return df.reset_index(drop=True)
 
-# 3. Interface principale
-st.title("🏢 Gestion Centralisée des Fournisseurs")
-
-# Initialisation de la base de données globale
+# 3. Initialisation de la base de données (Session State)
 if 'master_db' not in st.session_state:
     st.session_state.master_db = pd.DataFrame(columns=[
         'Nom du Fournisseur', 'Catégorie', 'Téléphone', 'Mobile', 'Adresse', 'E-mail'
     ])
 
-# Menu de navigation par onglets
-tab1, tab2 = st.tabs(["📥 Importation Excel", "➕ Saisie Manuelle"])
+# --- Interface Utilisateur ---
+st.title("🏢 Gestionnaire des Fournisseurs")
 
+tab1, tab2 = st.tabs(["📥 Importation Excel", "➕ Nouveau Fournisseur (Manuel)"])
+
+# ONGLET 1 : IMPORTATION EXCEL
 with tab1:
-    st.subheader("Importation de fichiers")
-    col_up1, col_up2 = st.columns([1, 2])
-    
-    with col_up1:
-        uploaded_file = st.file_uploader("Fichier Excel (.xlsx)", type=['xlsx'])
+    st.subheader("Importer depuis Excel")
+    uploaded_file = st.file_uploader("Choisir un fichier .xlsx", type=['xlsx'])
     
     if uploaded_file:
         try:
             xl = pd.ExcelFile(uploaded_file)
-            sheets = xl.sheet_names
-            st.write(f"📁 {len(sheets)} onglets trouvés.")
+            all_sheets = xl.sheet_names
             
-            selected_sheets = st.multiselect("Sélectionnez les onglets :", sheets, default=sheets)
+            selected_sheets = st.multiselect(
+                "Sélectionnez les feuilles (catégories) à importer :", 
+                all_sheets, 
+                default=all_sheets
+            )
             
-            if st.button("🔄 Fusionner & Nettoyer"):
-                temp_list = []
-                for s in selected_sheets:
-                    df_raw = pd.read_excel(uploaded_file, sheet_name=s)
-                    df_clean = robust_clean(df_raw)
-                    if not df_clean.empty:
-                        df_clean['Catégorie'] = s
-                        temp_list.append(df_clean)
+            if st.button("🚀 Traiter et Fusionner"):
+                temp_frames = []
+                progress_bar = st.progress(0)
                 
-                if temp_list:
-                    # Fusion avec la base existante
-                    new_data = pd.concat(temp_list, axis=0, ignore_index=True, sort=False)
-                    st.session_state.master_db = pd.concat([st.session_state.master_db, new_data], ignore_index=True).drop_duplicates()
-                    st.success(f"✅ Importation réussie ! {len(new_data)} fournisseurs ajoutés.")
+                for idx, sheet in enumerate(selected_sheets):
+                    # Lire la feuille sans type spécifique d'abord
+                    raw_df = pd.read_excel(uploaded_file, sheet_name=sheet)
+                    # Nettoyer avec notre fonction robuste
+                    clean_df = ultra_robust_clean(raw_df)
+                    
+                    if not clean_df.empty:
+                        clean_df['Catégorie'] = sheet
+                        temp_frames.append(clean_df)
+                    
+                    progress_bar.progress((idx + 1) / len(selected_sheets))
+                
+                if temp_frames:
+                    new_entries = pd.concat(temp_frames, axis=0, ignore_index=True)
+                    # Fusionner avec l'existant et supprimer les doublons
+                    st.session_state.master_db = pd.concat([st.session_state.master_db, new_entries], ignore_index=True).drop_duplicates()
+                    st.success(f"✅ Opération réussie : {len(new_entries)} fournisseurs ajoutés/mis à jour.")
+                else:
+                    st.warning("⚠️ Aucune donnée valide n'a été trouvée dans les feuilles sélectionnées.")
+                    
         except Exception as e:
-            st.error(f"Erreur lors de l'import : {e}")
+            st.error(f"Erreur lors de la lecture : {e}")
 
+# ONGLET 2 : SAISIE MANUELLE
 with tab2:
-    st.subheader("Ajouter un nouveau fournisseur")
-    with st.form("form_manual"):
-        c1, c2 = st.columns(2)
-        with c1:
-            name = st.text_input("Nom de la Société *")
-            category = st.text_input("Catégorie (ex: Pneumatique)")
-            tel = st.text_input("Téléphone Fixe")
-        with c2:
-            mobile = st.text_input("Mobile")
-            email = st.text_input("Email")
-            address = st.text_area("Adresse Complète", height=68)
+    st.subheader("Ajout manuel d'un fournisseur")
+    with st.form("manual_entry_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            m_name = st.text_input("Nom / Raison Sociale *")
+            m_cat = st.text_input("Catégorie (ex: Bureautique)")
+            m_tel = st.text_input("Téléphone Fixe")
+        with col2:
+            m_mob = st.text_input("Mobile")
+            m_mail = st.text_input("E-mail")
+            m_addr = st.text_area("Adresse", height=68)
         
-        if st.form_submit_button("💾 Enregistrer le fournisseur"):
-            if name:
-                new_entry = pd.DataFrame([{
-                    "Nom du Fournisseur": name,
-                    "Catégorie": category,
-                    "Téléphone": tel,
-                    "Mobile": mobile,
-                    "Adresse": address,
-                    "E-mail": email
+        submitted = st.form_submit_button("💾 Enregistrer")
+        if submitted:
+            if m_name:
+                new_row = pd.DataFrame([{
+                    "Nom du Fournisseur": m_name,
+                    "Catégorie": m_cat,
+                    "Téléphone": m_tel,
+                    "Mobile": m_mob,
+                    "Adresse": m_addr,
+                    "E-mail": m_mail
                 }])
-                st.session_state.master_db = pd.concat([st.session_state.master_db, new_entry], ignore_index=True)
-                st.success(f"Fournisseur '{name}' enregistré.")
+                st.session_state.master_db = pd.concat([st.session_state.master_db, new_row], ignore_index=True)
+                st.success(f"Le fournisseur '{m_name}' a été ajouté.")
             else:
-                st.warning("Le champ Nom est obligatoire.")
+                st.error("Le nom du fournisseur est obligatoire.")
 
-# 4. Affichage et Recherche
+# 4. AFFICHAGE DES RÉSULTATS
+st.divider()
 if not st.session_state.master_db.empty:
-    st.divider()
-    search = st.text_input("🔍 Recherche rapide (par nom, catégorie, téléphone...):")
+    st.subheader("📋 Liste Globale des Fournisseurs")
     
-    df_view = st.session_state.master_db
-    if search:
-        mask = df_view.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
-        df_view = df_view[mask]
+    # Barre de recherche
+    search_query = st.text_input("🔍 Rechercher par nom, catégorie ou ville :")
+    
+    display_df = st.session_state.master_db
+    if search_query:
+        mask = display_df.astype(str).apply(lambda x: x.str.contains(search_query, case=False)).any(axis=1)
+        display_df = display_df[mask]
 
-    st.write(f"📋 **{len(df_view)}** Fournisseurs affichés")
-    st.dataframe(df_view, use_container_width=True, hide_index=True)
-
-    # Actions sur la base
-    col_act1, col_act2 = st.columns(2)
-    with col_act1:
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    
+    # Export et Actions
+    c_exp1, c_exp2 = st.columns([1, 1])
+    with c_exp1:
         # Export Excel
-        out_buf = io.BytesIO()
-        with pd.ExcelWriter(out_buf, engine='openpyxl') as writer:
-            df_view.to_excel(writer, index=False, sheet_name='Base_Suppliers')
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            display_df.to_excel(writer, index=False, sheet_name='Fournisseurs')
         
-        st.download_button("📥 Télécharger la base complète (Excel)", 
-                           data=out_buf.getvalue(), 
-                           file_name="Base_Fournisseurs_Organisee.xlsx",
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        st.download_button(
+            label="📥 Télécharger la liste en Excel",
+            data=output.getvalue(),
+            file_name="base_fournisseurs_finale.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
     
-    with col_act2:
-        if st.button("🗑️ Vider la base de données"):
+    with c_exp2:
+        if st.button("🗑️ Réinitialiser la base"):
             st.session_state.master_db = pd.DataFrame(columns=st.session_state.master_db.columns)
             st.rerun()
 else:
-    st.info("La base de données est vide. Importez un fichier ou saisissez un fournisseur manuellement.")
+    st.info("La base de données est vide. Utilisez l'un des onglets ci-dessus pour ajouter des données.")
