@@ -38,7 +38,7 @@ def ultra_robust_clean(df):
         'Adresse': ['adresse', 'address', 'lieu', 'wilaya', 'عنوان', 'مقر', 'localisation'],
         'Téléphone': ['tél', 'tel', 'phone', 'fixe', 'هاتف', 'الفاكس', 'fax'],
         'Mobile': ['mobile', 'mob', 'tél/mob', 'محمول', 'جوال', 'رقم'],
-        'E-mail': ['email', 'e-mail', 'mail', 'البريد', 'إيميل']
+        'E-mail': ['email', 'e-mail', 'mail', 'البريد', 'إيميل', 'E-mail']
     }
 
     # Stratégie de détection d'en-tête améliorée
