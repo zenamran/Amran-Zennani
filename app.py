@@ -116,7 +116,7 @@ with tab2:
         c1, c2 = st.columns(2)
         with c1:
             name = st.text_input("Nom de l'établissement *")
-            selected_cats = st.multiselect("Catégories de fourniture", AVAILABLE_CATEGORIES)
+#            selected_cats = st.multiselect("Catégories de fourniture", AVAILABLE_CATEGORIES)
             tel = st.text_input("Téléphone")
         with c2:
             mob = st.text_input("Mobile")
