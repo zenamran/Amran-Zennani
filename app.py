@@ -115,7 +115,8 @@ with tab2:
         c1, c2 = st.columns(2)
         with c1:
             name = st.text_input("Nom de l'établissement *")
-            selected_cats = st.multiselect("Catégories de fourniture", AVAILABLE_CATEGORIES)
+            selected_cats = st.multiselect("Sélectionner des catégories", AVAILABLE_CATEGORIES)
+            custom_cat = st.text_input("Ou saisir une catégorie personnalisée (كتابة فئة أخرى)")
             tel = st.text_input("Téléphone")
         with c2:
             mob = st.text_input("Mobile")
@@ -124,7 +125,12 @@ with tab2:
         
         if st.form_submit_button("💾 Enregistrer"):
             if name:
-                cat_string = " / ".join(selected_cats) if selected_cats else "Général"
+                # دمج الفئات المختارة مع الفئة المكتوبة يدوياً
+                all_cats = list(selected_cats)
+                if custom_cat.strip():
+                    all_cats.append(custom_cat.strip())
+                
+                cat_string = " / ".join(all_cats) if all_cats else "Général"
                 name_lower = name.lower().strip()
                 existing_idx = next((i for i, item in enumerate(st.session_state.data_list) if item['Nom du Fournisseur'].lower().strip() == name_lower), None)
                 
@@ -136,9 +142,13 @@ with tab2:
                     st.success("Mورد جديد أضيف بنجاح")
                 else:
                     # دمج الفئات يدوياً إذا أضيف نفس المورد
-                    current = st.session_state.data_list[existing_idx]['Catégories']
-                    for c in selected_cats:
-                        if c not in current: current = f"{current} / {c}"
+                    current = str(st.session_state.data_list[existing_idx]['Catégories'])
+                    current_list = [c.strip() for c in current.split('/')]
+                    
+                    for c in all_cats:
+                        if c not in current_list:
+                            current = f"{current} / {c}"
+                    
                     st.session_state.data_list[existing_idx]['Catégories'] = current
                     st.info("تم تحديث فئات المورد الموجود مسبقاً")
             st.rerun()
