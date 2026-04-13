@@ -17,6 +17,14 @@ st.markdown("""
     .main-header { color: #1E293B; font-weight: 700; border-bottom: 3px solid #10B981; padding-bottom: 10px; }
     </style>
     """, unsafe_allow_html=True)
+
+# قائمة الفئات الافتراضية
+AVAILABLE_CATEGORIES = [
+    "Mécanique", "Électricité", "Plomberie", "PPE / Protection", 
+    "Consommables", "Pièces de rechange", "Outillage", 
+    "Maintenance", "Informatique", "Produits Chimiques", "BTP"
+]
+
 # 2. وظيفة المعالجة - تحويل البيانات لسجلات ذكية تدمج الفئات
 def get_clean_records(df_raw, category_name):
     if df_raw.empty: return []
@@ -28,8 +36,7 @@ def get_clean_records(df_raw, category_name):
         'Adresse': ['adresse', 'address', 'lieu', 'wilaya', 'عنوان', 'مقر', 'localisation', 'ville'],
         'Téléphone': ['tél', 'tel', 'phone', 'fixe', 'هاتف', 'الفاكس', 'fax'],
         'Mobile': ['mobile', 'mob', 'محمول', 'جوال', 'رقم'],
-        'E-mail': ['email', 'e-mail', 'mail', 'البريد', 'إيميل'],
-        'FAX': ['FAX', 'Fax', 'fax','الفاكس','فاكس']
+        'E-mail': ['email', 'e-mail', 'mail', 'البريد', 'إيميل']
     }
 
     header_idx = -1
@@ -65,7 +72,7 @@ def get_clean_records(df_raw, category_name):
 if 'data_list' not in st.session_state:
     st.session_state.data_list = []
 
-st.markdown("<h1 class='main-header'>🏢 Gestionnaire des Fournisseurs</h1>", unsafe_allow_html=True)
+st.markdown("<h1 class='main-header'>🏢 Gestionnaire des Fournisseurs (Multi-Catégories)</h1>", unsafe_allow_html=True)
 
 tab1, tab2 = st.tabs(["📥 Importation Excel", "➕ Ajout Manuel"])
 
@@ -108,6 +115,7 @@ with tab2:
         c1, c2 = st.columns(2)
         with c1:
             name = st.text_input("Nom de l'établissement *")
+            selected_cats = st.multiselect("Catégories de fourniture", AVAILABLE_CATEGORIES)
             tel = st.text_input("Téléphone")
         with c2:
             mob = st.text_input("Mobile")
