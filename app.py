@@ -36,7 +36,8 @@ def get_clean_records(df_raw, category_name):
         'Adresse': ['adresse', 'address', 'lieu', 'wilaya', 'عنوان', 'مقر', 'localisation', 'ville'],
         'Téléphone': ['tél', 'tel', 'phone', 'fixe', 'هاتف', 'الفاكس', 'fax'],
         'Mobile': ['mobile', 'mob', 'محمول', 'جوال', 'رقم'],
-        'E-mail': ['email', 'e-mail', 'mail', 'البريد', 'إيميل']
+        'E-mail': ['email', 'e-mail', 'mail', 'البريد', 'إيميل'],
+        'FAX': ['FAX', 'Fax', 'fax','الفاكس','فاكس']
     }
 
     header_idx = -1
