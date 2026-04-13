@@ -28,7 +28,7 @@ def get_clean_records(df_raw, category_name):
     df = df_raw.astype(str).replace(['nan', 'None', 'NaN', 'null'], '')
     
     mapping = {
-        'Nom du Fournisseur': ['nom', 'fournisseur', 'designation', 'désignation', 'société', 'company', 'اسم', 'المورد', 'établissement'],
+        'Nom du Fournisseur': ['nom', 'fournisseur', 'designation', 'désignation', 'société', 'company', 'اسم', 'المورد', 'établissement', 'Candidat'],
         'Adresse': ['adresse', 'address', 'lieu', 'wilaya', 'عنوان', 'مقر', 'localisation', 'ville'],
         'Téléphone': ['tél', 'tel', 'phone', 'fixe', 'هاتف', 'الفاكس', 'fax'],
         'Mobile': ['mobile', 'mob', 'محمول', 'جوال', 'رقم'],
