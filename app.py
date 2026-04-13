@@ -73,7 +73,7 @@ def get_clean_records(df_raw, category_name):
 if 'data_list' not in st.session_state:
     st.session_state.data_list = []
 
-st.markdown("<h1 class='main-header'>🏢 Gestionnaire des Fournisseurs (Multi-Catégories)</h1>", unsafe_allow_html=True)
+st.markdown("<h1 class='main-header'>🏢 Gestionnaire des Fournisseurs</h1>", unsafe_allow_html=True)
 
 tab1, tab2 = st.tabs(["📥 Importation Excel", "➕ Ajout Manuel"])
 
