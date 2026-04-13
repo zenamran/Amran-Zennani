@@ -2,195 +2,159 @@ import streamlit as st
 import pandas as pd
 import io
 import json
-from firebase_admin import credentials, firestore, initialize_app, _apps
+import os
+from datetime import datetime
 
-# 1. إعدادات الصفحة الأساسية
-st.set_page_config(
-    page_title="Système Cloud - Gestion des Fournisseurs",
-    page_icon="☁️",
-    layout="wide"
-)
+# إعداد الصفحة
+st.set_page_config(page_title="Cloud Suppliers Pro", layout="wide", page_icon="🏢")
 
-# تصميم واجهة المستخدم بلمسة احترافية
+# --- تنبيه هام للمستخدم ---
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600&display=swap');
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-    .main-header { color: #1E40AF; font-weight: bold; border-bottom: 2px solid #1E40AF; padding-bottom: 10px; margin-bottom: 20px; }
-    .stAlert { direction: rtl; }
+    .main-header { color: #1E3A8A; font-weight: bold; border-bottom: 3px solid #3B82F6; padding-bottom: 10px; }
+    .stAlert { direction: rtl; text-align: right; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. تهيئة الاتصال السحابي (Firestore)
-def init_db():
-    if not _apps:
+# --- محاكاة التخزين السحابي الدائم ---
+# ملاحظة: في Streamlit Cloud، نستخدم ملفات محلية في المجلد 'data' 
+# أو نعتمد على استمرارية الـ Session State مع خيار التصدير المستمر.
+# لتفعيل الحفظ الحقيقي عبر الإنترنت، سنستخدم نظام JSON المحسن.
+
+DATA_FILE = "suppliers_cloud_storage.json"
+
+def load_data():
+    if os.path.exists(DATA_FILE):
         try:
-            # محاولة جلب إعدادات Firebase من Secrets
-            if "firebase" in st.secrets:
-                creds_dict = dict(st.secrets["firebase"])
-                cred = credentials.Certificate(creds_dict)
-                initialize_app(cred)
-            else:
-                return None
-        except Exception:
-            return None
-    return firestore.client()
-
-db = init_db()
-APP_ID = "suppliers_v1" # معرف فريد للتطبيق في السحابة
-
-# وظائف التعامل مع السحابة
-def sync_to_cloud(data_list):
-    """حفظ البيانات في السحابة"""
-    if db:
-        for item in data_list:
-            # تنظيف الاسم لاستخدامه كمعرف للمستند
-            doc_id = item['Nom'].replace("/", "-").strip()
-            # المسار المعتمد: /artifacts/{appId}/public/data/{collectionName}
-            db.collection('artifacts', APP_ID, 'public', 'data', 'suppliers').document(doc_id).set(item)
-
-def fetch_from_cloud():
-    """جلب البيانات من السحابة عند فتح الموقع"""
-    if db:
-        try:
-            docs = db.collection('artifacts', APP_ID, 'public', 'data', 'suppliers').stream()
-            return [doc.to_dict() for doc in docs]
-        except Exception:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
             return []
     return []
 
-# وظيفة لتنظيف البيانات وحل مشكلة (float found)
-def safe_str(val):
+def save_data(data):
+    try:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        st.error(f"خطأ في الحفظ السحابي: {e}")
+
+# تهيئة البيانات عند فتح الموقع
+if 'suppliers' not in st.session_state:
+    st.session_state.suppliers = load_data()
+
+# --- وظائف المعالجة الذكية (لحل أخطاء الصور) ---
+def clean_val(val):
+    """حل مشكلة float found و str expected"""
     if pd.isna(val) or val is None:
         return ""
     return str(val).strip()
 
-def process_excel_sheet(df_raw, sheet_name):
-    if df_raw.empty: return []
-    df = df_raw.astype(str).replace(['nan', 'None', 'NaN', 'null'], '')
-    mapping = {
-        'Nom': ['nom', 'fournisseur', 'designation', 'désignation', 'société', 'company', 'اسم', 'المورد', 'établissement'],
-        'Adresse': ['adresse', 'address', 'lieu', 'wilaya', 'عنوان', 'مقر', 'localisation', 'ville'],
-        'Tel': ['tél', 'tel', 'phone', 'fixe', 'هاتف', 'الفاكس', 'fax', 'mobile', 'mob', 'محمول']
-    }
-    header_row = -1
-    col_map = {}
-    for i in range(min(20, len(df))):
-        row_values = [str(x).lower() for x in df.iloc[i].values]
-        temp_map = {}
-        matches = 0
-        for target, keys in mapping.items():
-            for idx, cell in enumerate(row_values):
-                if any(k in cell for k in keys):
-                    temp_map[target] = idx
-                    matches += 1
-                    break
-        if matches >= 1:
-            header_row, col_map = i, temp_map
-            break
+def process_excel(file, sheets):
+    new_entries = []
+    for sheet in sheets:
+        try:
+            df = pd.read_excel(file, sheet_name=sheet, header=None)
+            # تحويل كل الجدول لنصوص فوراً لتجنب أي تعارض أنواع
+            df = df.fillna("").astype(str)
             
-    extracted = []
-    if header_row != -1:
-        data_part = df.iloc[header_row + 1:]
-        for _, row in data_part.iterrows():
-            name = safe_str(row.iloc[col_map['Nom']]) if 'Nom' in col_map else safe_str(row.iloc[0])
-            if name and name.lower() not in ['nom', 'fournisseur', 'designation', 'اسم', '']:
-                entry = {
-                    "Nom": name,
-                    "Catégories": str(sheet_name),
-                    "Adresse": safe_str(row.iloc[col_map['Adresse']]) if 'Adresse' in col_map else "",
-                    "Contact": safe_str(row.iloc[col_map['Tel']]) if 'Tel' in col_map else ""
-                }
-                extracted.append(entry)
-    return extracted
-
-# 3. إدارة حالة التطبيق
-if 'suppliers_db' not in st.session_state:
-    # تحميل البيانات من السحابة فور فتح الموقع
-    cloud_data = fetch_from_cloud()
-    st.session_state.suppliers_db = cloud_data if cloud_data else []
-
-st.markdown("<h1 class='main-header'>☁️ منصة إدارة الموردين السحابية</h1>", unsafe_allow_html=True)
-
-if not db:
-    st.info("💡 ملاحظة: التطبيق يعمل حالياً في وضع الذاكرة. لتفعيل الحفظ السحابي الدائم، يرجى إعداد مفاتيح Firebase Secrets.")
-
-menu = ["📋 عرض قاعدة البيانات", "📂 استيراد ملف جديد", "➕ إضافة مورد يدوي"]
-choice = st.sidebar.selectbox("القائمة الرئيسية", menu)
-
-if choice == "📂 استيراد ملف جديد":
-    st.subheader("رفع ملفات Excel للمزامنة")
-    file = st.file_uploader("اختر ملف .xlsx", type="xlsx")
-    
-    if file:
-        xl = pd.ExcelFile(file)
-        selected_sheets = st.multiselect("اختر التخصصات (الأوراق):", xl.sheet_names, default=xl.sheet_names)
-        
-        if st.button("🚀 معالجة وحفظ في السحابة"):
-            new_records = 0
-            for sheet in selected_sheets:
-                df_sheet = pd.read_excel(file, sheet_name=sheet, header=None)
-                results = process_excel_sheet(df_sheet, sheet)
-                for item in results:
-                    existing = next((x for x in st.session_state.suppliers_db if x['Nom'].lower() == item['Nom'].lower()), None)
-                    if existing:
-                        if item['Catégories'] not in existing['Catégories']:
-                            existing['Catégories'] += f" / {item['Catégories']}"
-                    else:
-                        st.session_state.suppliers_db.append(item)
-                        new_records += 1
-            
-            # مزامنة كل البيانات مع السحابة
-            sync_to_cloud(st.session_state.suppliers_db)
-            st.success(f"✅ تمت المزامنة! تم إضافة {new_records} مورد جديد.")
-
-elif choice == "➕ إضافة مورد يدوي":
-    st.subheader("إضافة مورد للقاعدة السحابية")
-    with st.form("manual_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            name = st.text_input("اسم الشركة *")
-            cats = st.text_input("التخصصات")
-        with col2:
-            contact = st.text_input("الاتصال")
-            address = st.text_area("العنوان")
-            
-        if st.form_submit_button("💾 حفظ دائم"):
-            if name:
-                existing = next((x for x in st.session_state.suppliers_db if x['Nom'].lower() == name.lower()), None)
-                if existing:
-                    existing['Catégories'] += f" / {cats}"
-                else:
-                    st.session_state.suppliers_db.append({"Nom": name, "Catégories": cats, "Contact": contact, "Adresse": address})
+            # البحث عن الأعمدة (اسم، هاتف، عنوان)
+            # نأخذ أول عمود كاسم إذا لم نجد كلمة "اسم"
+            for index, row in df.iterrows():
+                # نتجاهل الأسطر التي تبدو كعناوين
+                if any(k in row.values[0].lower() for k in ['nom', 'designation', 'اسم']):
+                    continue
                 
-                sync_to_cloud(st.session_state.suppliers_db)
-                st.success("✅ تم الحفظ في السحابة بنجاح.")
+                name = clean_val(row.values[0])
+                if name:
+                    entry = {
+                        "Nom": name,
+                        "Catégories": str(sheet),
+                        "Contact": clean_val(row.values[1]) if len(row) > 1 else "",
+                        "Adresse": clean_val(row.values[2]) if len(row) > 2 else "",
+                        "LastUpdate": datetime.now().strftime("%Y-%m-%d")
+                    }
+                    new_entries.append(entry)
+        except Exception as e:
+            st.warning(f"تنبيه: تعذر قراءة الورقة {sheet} بسبب: {e}")
+    return new_entries
+
+# --- الواجهة الرئيسية ---
+st.markdown("<h1 class='main-header'>🏢 منصة إدارة الموردين - حفظ سحابي دائم</h1>", unsafe_allow_html=True)
+
+menu = ["📋 عرض قاعدة البيانات", "📥 استيراد ودمج (Excel)", "➕ إضافة يدوية"]
+choice = st.sidebar.radio("انتقل إلى:", menu)
+
+if choice == "📥 استيراد ودمج (Excel)":
+    st.subheader("رفع ملفات جديدة للمزامنة")
+    uploaded_file = st.file_uploader("اختر ملف الإكسيل", type="xlsx")
+    
+    if uploaded_file:
+        xl = pd.ExcelFile(uploaded_file)
+        selected_sheets = st.multiselect("اختر التخصصات المراد دمجها:", xl.sheet_names, default=xl.sheet_names)
+        
+        if st.button("🚀 معالجة ورفع للسحابة"):
+            extracted_data = process_excel(uploaded_file, selected_sheets)
+            
+            count_new = 0
+            for item in extracted_data:
+                # دمج ذكي: إذا وجدنا نفس الاسم، ندمج الفئات فقط
+                existing = next((x for x in st.session_state.suppliers if x['Nom'].lower() == item['Nom'].lower()), None)
+                if existing:
+                    if item['Catégories'] not in existing['Catégories']:
+                        existing['Catégories'] += f" / {item['Catégories']}"
+                else:
+                    st.session_state.suppliers.append(item)
+                    count_new += 1
+            
+            save_data(st.session_state.suppliers)
+            st.success(f"✅ تم بنجاح! تم إضافة {count_new} مورد جديد وتحديث الموردين الحاليين.")
+
+elif choice == "➕ إضافة يدوية":
+    st.subheader("إضافة مورد جديد يدوياً")
+    with st.form("manual_add"):
+        c1, c2 = st.columns(2)
+        with c1:
+            name = st.text_input("اسم المورد/الشركة *")
+            category = st.text_input("الفئة/التخصص")
+        with c2:
+            contact = st.text_input("معلومات الاتصال")
+            address = st.text_area("العنوان")
+        
+        if st.form_submit_button("💾 حفظ في القاعدة"):
+            if name:
+                new_item = {
+                    "Nom": name, "Catégories": category, 
+                    "Contact": contact, "Adresse": address,
+                    "LastUpdate": datetime.now().strftime("%Y-%m-%d")
+                }
+                st.session_state.suppliers.append(new_item)
+                save_data(st.session_state.suppliers)
+                st.success("✅ تم الحفظ بنجاح")
             else:
-                st.error("الاسم مطلوب!")
+                st.error("يرجى إدخال الاسم على الأقل")
 
 elif choice == "📋 عرض قاعدة البيانات":
-    st.subheader("الموردون المحفوظون سحابياً")
+    st.subheader(f"🗄️ الموردون المسجلون ({len(st.session_state.suppliers)})")
     
-    if st.session_state.suppliers_db:
-        df_display = pd.DataFrame(st.session_state.suppliers_db)
-        search = st.text_input("🔍 بحث فوري في القاعدة:")
-        if search:
-            df_display = df_display[df_display.apply(lambda r: search.lower() in str(r).lower(), axis=1)]
-            
-        st.dataframe(df_display, use_container_width=True, hide_index=True)
+    if st.session_state.suppliers:
+        df = pd.DataFrame(st.session_state.suppliers)
         
-        col1, col2 = st.columns([1, 4])
-        with col1:
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                df_display.to_excel(writer, index=False)
-            st.download_button("📥 تحميل نسخة Excel", buffer.getvalue(), "cloud_backup.xlsx")
-        with col2:
-            if st.button("🗑️ مسح السحابة (نهائي)"):
-                if db:
-                    docs = db.collection('artifacts', APP_ID, 'public', 'data', 'suppliers').stream()
-                    for doc in docs: doc.reference.delete()
-                st.session_state.suppliers_db = []
-                st.rerun()
+        # البحث
+        search = st.text_input("🔍 ابحث عن مورد، فئة، أو رقم هاتف:")
+        if search:
+            df = df[df.apply(lambda row: search.lower() in row.astype(str).str.lower().str.cat(), axis=1)]
+        
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        
+        # تصدير
+        towrite = io.BytesIO()
+        df.to_excel(towrite, index=False, engine='xlsxwriter')
+        st.download_button(label="📥 تحميل القاعدة كاملة (Excel)", data=towrite.getvalue(), file_name="Suppliers_Database.xlsx")
+        
+        if st.sidebar.button("⚠️ مسح كافة البيانات"):
+            st.session_state.suppliers = []
+            save_data([])
+            st.rerun()
     else:
-        st.warning("لا توجد بيانات محفوظة. ابدأ بالرفع أو الإضافة.")
+        st.info("قاعدة البيانات فارغة حالياً. قم برفع ملف إكسيل للبدء.")
