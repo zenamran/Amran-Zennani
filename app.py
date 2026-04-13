@@ -1,178 +1,114 @@
 import streamlit as st
 import pandas as pd
 import io
+import os
+from datetime import datetime
 
-# 1. الإعدادات العامة للصفحة
-st.set_page_config(
-    page_title="Système de Gestion des Fournisseurs",
-    page_icon="🏢",
-    layout="wide"
-)
+# 1. Configuration de la page et Style
+st.set_page_config(page_title="Gestion Fournisseurs Cloud", layout="wide", page_icon="☁️")
 
-# تصميم الواجهة
+# CSS pour un look professionnel (Style moderne)
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600&display=swap');
-    html, body, [class*="css"] { font-family: 'Segoe UI', sans-serif; }
-    .main-header { color: #1E293B; font-weight: 700; border-bottom: 3px solid #10B981; padding-bottom: 10px; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+    html, body, [class*="st-"] { font-family: 'Inter', sans-serif; }
+    .main-header { color: #1E3A8A; border-bottom: 3px solid #3B82F6; padding-bottom: 10px; margin-bottom: 25px; }
+    .stButton>button { width: 100%; border-radius: 8px; background-color: #3B82F6; color: white; border: none; padding: 10px; }
+    .stTab { background-color: #f8fafc; border-radius: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# قائمة الفئات الافتراضية
-AVAILABLE_CATEGORIES = [
-    "Mécanique", "Électricité", "Plomberie", "PPE / Protection", 
-    "Consommables", "Pièces de rechange", "Outillage", 
-    "Maintenance", "Informatique", "Produits Chimiques", "BTP"
-]
+# 2. Gestion des données (Système de stockage persistant)
+DB_FILE = "suppliers_database_v2.csv"
 
-# 2. وظيفة المعالجة - تحويل البيانات لسجلات ذكية تدمج الفئات
-def get_clean_records(df_raw, category_name):
-    if df_raw.empty: return []
-    
-    df = df_raw.astype(str).replace(['nan', 'None', 'NaN', 'null'], '')
-    
-    mapping = {
-        'Nom du Fournisseur': ['nom', 'fournisseur', 'designation', 'désignation', 'société', 'company', 'اسم', 'المورد', 'établissement'],
-        'Adresse': ['adresse', 'address', 'lieu', 'wilaya', 'عنوان', 'مقر', 'localisation', 'ville'],
-        'Téléphone': ['tél', 'tel', 'phone', 'fixe', 'هاتف', 'الفاكس', 'fax'],
-        'Mobile': ['mobile', 'mob', 'محمول', 'جوال', 'رقم'],
-        'E-mail': ['email', 'e-mail', 'mail', 'البريد', 'إيميل'],
-        'FAX': ['FAX', 'Fax', 'fax','الفاكس' ,'فاكس']
-    }
+def load_data():
+    if "db" not in st.session_state:
+        if os.path.exists(DB_FILE):
+            try:
+                st.session_state.db = pd.read_csv(DB_FILE)
+            except:
+                st.session_state.db = pd.DataFrame(columns=["Nom", "Catégories", "Contact", "Adresse"])
+        else:
+            st.session_state.db = pd.DataFrame(columns=["Nom", "Catégories", "Contact", "Adresse"])
+    return st.session_state.db
 
-    header_idx = -1
-    col_map = {}
-    for i in range(min(50, len(df))):
-        row = [str(x).lower() for x in df.iloc[i].values]
-        current_map = {}
-        matches = 0
-        for target, keys in mapping.items():
-            for idx, cell in enumerate(row):
-                if any(k in cell for k in keys):
-                    current_map[idx] = target
-                    matches += 1
-                    break
-        if matches >= 1:
-            header_idx, col_map = i, current_map
-            break
+def save_data(df):
+    st.session_state.db = df
+    df.to_csv(DB_FILE, index=False)
 
-    records = []
-    if header_idx != -1:
-        data_rows = df.iloc[header_idx + 1:]
-        for _, row in data_rows.iterrows():
-            record = {'Catégories': category_name}
-            for target in mapping.keys(): record[target] = ""
-            for col_idx, target_name in col_map.items():
-                record[target_name] = str(row.iloc[col_idx]).strip()
+# 3. Traitement des données (Correction d'erreurs Type/Float)
+def safe_text(val):
+    """Convertit les valeurs en texte pour éviter l'erreur (float found)"""
+    if pd.isna(val) or val is None:
+        return ""
+    return str(val).strip()
+
+def process_excel_robust(file, selected_sheets):
+    extracted_data = []
+    for sheet in selected_sheets:
+        try:
+            # Lecture immédiate en tant que texte pour éviter les conflits
+            df = pd.read_excel(file, sheet_name=sheet).fillna("").astype(str)
             
-            if record.get('Nom du Fournisseur') and record['Nom du Fournisseur'].lower() not in ['nom', 'designation', 'fournisseur', 'اسم']:
-                records.append(record)
-    return records
+            cols = df.columns.tolist()
+            for _, row in df.iterrows():
+                name = safe_text(row[cols[0]])
+                if name and len(name) > 1:
+                    extracted_data.append({
+                        "Nom": name,
+                        "Catégories": safe_text(sheet),
+                        "Contact": safe_text(row[cols[1]]) if len(cols) > 1 else "",
+                        "Adresse": safe_text(row[cols[2]]) if len(cols) > 2 else ""
+                    })
+        except Exception as e:
+            st.error(f"Erreur lors de la lecture de la feuille {sheet}: {e}")
+    return pd.DataFrame(extracted_data)
 
-# 3. إدارة الحالة (Session State)
-if 'data_list' not in st.session_state:
-    st.session_state.data_list = []
+# 4. Interface Utilisateur (UI)
+st.markdown("<h1 class='main-header'>🏢 Système Cloud de Gestion des Fournisseurs</h1>", unsafe_allow_html=True)
 
-st.markdown("<h1 class='main-header'>🏢 Gestionnaire des Fournisseurs (Multi-Catégories)</h1>", unsafe_allow_html=True)
+db_current = load_data()
 
-tab1, tab2 = st.tabs(["📥 Importation Excel", "➕ Ajout Manuel"])
+tab1, tab2, tab3 = st.tabs(["📋 Liste des Fournisseurs", "📥 Importer Excel", "➕ Ajouter Manuellement"])
 
 with tab1:
-    uploaded_file = st.file_uploader("Charger un fichier Excel", type=['xlsx'])
-    if uploaded_file:
-        try:
-            xl = pd.ExcelFile(uploaded_file)
-            sheets = st.multiselect("Sélectionnez les feuilles (Les noms des feuilles seront les catégories) :", xl.sheet_names, default=xl.sheet_names)
-            
-            if st.button("🚀 Fusionner les données"):
-                new_added = 0
-                updated_cats = 0
-                for s in sheets:
-                    df_raw = pd.read_excel(uploaded_file, sheet_name=s, header=None)
-                    records = get_clean_records(df_raw, s)
-                    
-                    for rec in records:
-                        name_lower = rec['Nom du Fournisseur'].lower().strip()
-                        # البحث عن المورد الحالي في القائمة
-                        existing_idx = next((i for i, item in enumerate(st.session_state.data_list) if item['Nom du Fournisseur'].lower().strip() == name_lower), None)
-                        
-                        if existing_idx is None:
-                            # مورد جديد تماماً
-                            st.session_state.data_list.append(rec)
-                            new_added += 1
-                        else:
-                            # المورد موجود، نقوم بدمج الفئة الجديدة مع الفئات السابقة
-                            current_cats = str(st.session_state.data_list[existing_idx]['Catégories'])
-                            if s.strip() not in [c.strip() for c in current_cats.split('/')]:
-                                st.session_state.data_list[existing_idx]['Catégories'] = f"{current_cats} / {s}"
-                                updated_cats += 1
-                
-                st.success(f"✅ Terminé : {new_added} nouveaux fournisseurs et {updated_cats} mises à jour de catégories.")
-        except Exception as e:
-            st.error(f"Erreur : {str(e)}")
+    st.subheader("Base de données des fournisseurs")
+    if not db_current.empty:
+        # Barre de recherche
+        query = st.text_input("🔍 Rechercher par nom, catégorie ou contact :")
+        
+        display_df = db_current.copy()
+        if query:
+            mask = display_df.astype(str).apply(lambda x: x.str.contains(query, case=False, na=False)).any(axis=1)
+            display_df = display_df[mask]
+        
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        
+        # Bouton d'exportation
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            display_df.to_excel(writer, index=False, sheet_name='Fournisseurs')
+        
+        st.download_button(
+            label="📥 Télécharger la liste (Excel)",
+            data=buffer.getvalue(),
+            file_name=f"Backup_Fournisseurs_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.ms-excel"
+        )
+    else:
+        st.info("La base de données est vide. Veuillez importer un fichier ou ajouter un fournisseur.")
 
 with tab2:
-    with st.form("manual_entry", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            name = st.text_input("Nom de l'établissement *")
-            selected_cats = st.multiselect("Sélectionner des catégories", AVAILABLE_CATEGORIES)
-            custom_cat = st.text_input("Ou saisir une catégorie personnalisée (كتابة فئة أخرى)")
-            tel = st.text_input("Téléphone")
-        with c2:
-            mob = st.text_input("Mobile")
-            mail = st.text_input("E-mail")
-            adr = st.text_area("Adresse")
+    st.subheader("Importer des données depuis Excel")
+    up_file = st.file_uploader("Choisir un fichier .xlsx", type="xlsx")
+    
+    if up_file:
+        xl = pd.ExcelFile(up_file)
+        sheets = st.multiselect("Sélectionner les feuilles (Catégories) :", xl.sheet_names, default=xl.sheet_names)
         
-        if st.form_submit_button("💾 Enregistrer"):
-            if name:
-                # دمج الفئات المختارة مع الفئة المكتوبة يدوياً
-                all_cats = list(selected_cats)
-                if custom_cat.strip():
-                    all_cats.append(custom_cat.strip())
-                
-                cat_string = " / ".join(all_cats) if all_cats else "Général"
-                name_lower = name.lower().strip()
-                existing_idx = next((i for i, item in enumerate(st.session_state.data_list) if item['Nom du Fournisseur'].lower().strip() == name_lower), None)
-                
-                if existing_idx is None:
-                    st.session_state.data_list.append({
-                        "Nom du Fournisseur": name, "Catégories": cat_string, 
-                        "Téléphone": tel, "Mobile": mob, "Adresse": adr, "E-mail": mail
-                    })
-                    st.success("Mورد جديد أضيف بنجاح")
-                else:
-                    # دمج الفئات يدوياً إذا أضيف نفس المورد
-                    current = str(st.session_state.data_list[existing_idx]['Catégories'])
-                    current_list = [c.strip() for c in current.split('/')]
-                    
-                    for c in all_cats:
-                        if c not in current_list:
-                            current = f"{current} / {c}"
-                    
-                    st.session_state.data_list[existing_idx]['Catégories'] = current
-                    st.info("تم تحديث فئات المورد الموجود مسبقاً")
-            st.rerun()
-
-# 4. عرض النتائج
-st.divider()
-if st.session_state.data_list:
-    df_final = pd.DataFrame(st.session_state.data_list)
-    st.subheader(f"📋 Liste Unifiée ({len(df_final)} fournisseurs)")
-    
-    search = st.text_input("🔍 Rechercher un fournisseur ou une catégorie :")
-    if search:
-        mask = df_final.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
-        df_final = df_final[mask]
-
-    st.dataframe(df_final, use_container_width=True, hide_index=True)
-    
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        out = io.BytesIO()
-        df_final.to_excel(out, index=False, engine='openpyxl')
-        st.download_button("📥 Exporter Excel", out.getvalue(), "base_fournisseurs.xlsx")
-    with col2:
-        if st.button("🗑️ Vider la base"):
-            st.session_state.data_list = []
-            st.rerun()
+        if st.button("🚀 Fusionner et Sauvegarder"):
+            with st.spinner("Traitement en cours..."):
+                new_data = process_excel_robust(up_file, sheets)
+                if not new_data.empty:
+                    # Fusion et suppression des doublons basées sur le Nom
+                    updated_db = pd.concat([st.session_state.db, new_data]).drop_duplicates(subset=['Nom'], keep='first')
