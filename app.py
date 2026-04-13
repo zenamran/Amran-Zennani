@@ -19,11 +19,11 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # قائمة الفئات الافتراضية
-AVAILABLE_CATEGORIES = [
-    "Mécanique", "Électricité", "Plomberie", "PPE / Protection", 
-    "Consommables", "Pièces de rechange", "Outillage", 
-    "Maintenance", "Informatique", "Produits Chimiques", "BTP"
-]
+#AVAILABLE_CATEGORIES = [
+#    "Mécanique", "Électricité", "Plomberie", "PPE / Protection", 
+#    "Consommables", "Pièces de rechange", "Outillage", 
+#    "Maintenance", "Informatique", "Produits Chimiques", "BTP"
+#]
 
 # 2. وظيفة المعالجة - تحويل البيانات لسجلات ذكية تدمج الفئات
 def get_clean_records(df_raw, category_name):
