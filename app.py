@@ -1,160 +1,178 @@
 import streamlit as st
 import pandas as pd
 import io
-import json
-import os
-from datetime import datetime
 
-# إعداد الصفحة
-st.set_page_config(page_title="Cloud Suppliers Pro", layout="wide", page_icon="🏢")
+# 1. الإعدادات العامة للصفحة
+st.set_page_config(
+    page_title="Système de Gestion des Fournisseurs",
+    page_icon="🏢",
+    layout="wide"
+)
 
-# --- تنبيه هام للمستخدم ---
+# تصميم الواجهة
 st.markdown("""
     <style>
-    .main-header { color: #1E3A8A; font-weight: bold; border-bottom: 3px solid #3B82F6; padding-bottom: 10px; }
-    .stAlert { direction: rtl; text-align: right; }
+    @import url('https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600&display=swap');
+    html, body, [class*="css"] { font-family: 'Segoe UI', sans-serif; }
+    .main-header { color: #1E293B; font-weight: 700; border-bottom: 3px solid #10B981; padding-bottom: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- محاكاة التخزين السحابي الدائم ---
-# ملاحظة: في Streamlit Cloud، نستخدم ملفات محلية في المجلد 'data' 
-# أو نعتمد على استمرارية الـ Session State مع خيار التصدير المستمر.
-# لتفعيل الحفظ الحقيقي عبر الإنترنت، سنستخدم نظام JSON المحسن.
+# قائمة الفئات الافتراضية
+AVAILABLE_CATEGORIES = [
+    "Mécanique", "Électricité", "Plomberie", "PPE / Protection", 
+    "Consommables", "Pièces de rechange", "Outillage", 
+    "Maintenance", "Informatique", "Produits Chimiques", "BTP"
+]
 
-DATA_FILE = "suppliers_cloud_storage.json"
-
-def load_data():
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            return []
-    return []
-
-def save_data(data):
-    try:
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
-    except Exception as e:
-        st.error(f"خطأ في الحفظ السحابي: {e}")
-
-# تهيئة البيانات عند فتح الموقع
-if 'suppliers' not in st.session_state:
-    st.session_state.suppliers = load_data()
-
-# --- وظائف المعالجة الذكية (لحل أخطاء الصور) ---
-def clean_val(val):
-    """حل مشكلة float found و str expected"""
-    if pd.isna(val) or val is None:
-        return ""
-    return str(val).strip()
-
-def process_excel(file, sheets):
-    new_entries = []
-    for sheet in sheets:
-        try:
-            df = pd.read_excel(file, sheet_name=sheet, header=None)
-            # تحويل كل الجدول لنصوص فوراً لتجنب أي تعارض أنواع
-            df = df.fillna("").astype(str)
-            
-            # البحث عن الأعمدة (اسم، هاتف، عنوان)
-            # نأخذ أول عمود كاسم إذا لم نجد كلمة "اسم"
-            for index, row in df.iterrows():
-                # نتجاهل الأسطر التي تبدو كعناوين
-                if any(k in row.values[0].lower() for k in ['nom', 'designation', 'اسم']):
-                    continue
-                
-                name = clean_val(row.values[0])
-                if name:
-                    entry = {
-                        "Nom": name,
-                        "Catégories": str(sheet),
-                        "Contact": clean_val(row.values[1]) if len(row) > 1 else "",
-                        "Adresse": clean_val(row.values[2]) if len(row) > 2 else "",
-                        "LastUpdate": datetime.now().strftime("%Y-%m-%d")
-                    }
-                    new_entries.append(entry)
-        except Exception as e:
-            st.warning(f"تنبيه: تعذر قراءة الورقة {sheet} بسبب: {e}")
-    return new_entries
-
-# --- الواجهة الرئيسية ---
-st.markdown("<h1 class='main-header'>🏢 منصة إدارة الموردين - حفظ سحابي دائم</h1>", unsafe_allow_html=True)
-
-menu = ["📋 عرض قاعدة البيانات", "📥 استيراد ودمج (Excel)", "➕ إضافة يدوية"]
-choice = st.sidebar.radio("انتقل إلى:", menu)
-
-if choice == "📥 استيراد ودمج (Excel)":
-    st.subheader("رفع ملفات جديدة للمزامنة")
-    uploaded_file = st.file_uploader("اختر ملف الإكسيل", type="xlsx")
+# 2. وظيفة المعالجة - تحويل البيانات لسجلات ذكية تدمج الفئات
+def get_clean_records(df_raw, category_name):
+    if df_raw.empty: return []
     
-    if uploaded_file:
-        xl = pd.ExcelFile(uploaded_file)
-        selected_sheets = st.multiselect("اختر التخصصات المراد دمجها:", xl.sheet_names, default=xl.sheet_names)
-        
-        if st.button("🚀 معالجة ورفع للسحابة"):
-            extracted_data = process_excel(uploaded_file, selected_sheets)
-            
-            count_new = 0
-            for item in extracted_data:
-                # دمج ذكي: إذا وجدنا نفس الاسم، ندمج الفئات فقط
-                existing = next((x for x in st.session_state.suppliers if x['Nom'].lower() == item['Nom'].lower()), None)
-                if existing:
-                    if item['Catégories'] not in existing['Catégories']:
-                        existing['Catégories'] += f" / {item['Catégories']}"
-                else:
-                    st.session_state.suppliers.append(item)
-                    count_new += 1
-            
-            save_data(st.session_state.suppliers)
-            st.success(f"✅ تم بنجاح! تم إضافة {count_new} مورد جديد وتحديث الموردين الحاليين.")
+    df = df_raw.astype(str).replace(['nan', 'None', 'NaN', 'null'], '')
+    
+    mapping = {
+        'Nom du Fournisseur': ['nom', 'fournisseur', 'designation', 'désignation', 'société', 'company', 'اسم', 'المورد', 'établissement'],
+        'Adresse': ['adresse', 'address', 'lieu', 'wilaya', 'عنوان', 'مقر', 'localisation', 'ville'],
+        'Téléphone': ['tél', 'tel', 'phone', 'fixe', 'هاتف', 'الفاكس', 'fax'],
+        'Mobile': ['mobile', 'mob', 'محمول', 'جوال', 'رقم'],
+        'E-mail': ['email', 'e-mail', 'mail', 'البريد', 'إيميل'],
+        'FAX': ['FAX', 'Fax', 'fax','الفاكس' ,'فاكس']
+    }
 
-elif choice == "➕ إضافة يدوية":
-    st.subheader("إضافة مورد جديد يدوياً")
-    with st.form("manual_add"):
+    header_idx = -1
+    col_map = {}
+    for i in range(min(50, len(df))):
+        row = [str(x).lower() for x in df.iloc[i].values]
+        current_map = {}
+        matches = 0
+        for target, keys in mapping.items():
+            for idx, cell in enumerate(row):
+                if any(k in cell for k in keys):
+                    current_map[idx] = target
+                    matches += 1
+                    break
+        if matches >= 1:
+            header_idx, col_map = i, current_map
+            break
+
+    records = []
+    if header_idx != -1:
+        data_rows = df.iloc[header_idx + 1:]
+        for _, row in data_rows.iterrows():
+            record = {'Catégories': category_name}
+            for target in mapping.keys(): record[target] = ""
+            for col_idx, target_name in col_map.items():
+                record[target_name] = str(row.iloc[col_idx]).strip()
+            
+            if record.get('Nom du Fournisseur') and record['Nom du Fournisseur'].lower() not in ['nom', 'designation', 'fournisseur', 'اسم']:
+                records.append(record)
+    return records
+
+# 3. إدارة الحالة (Session State)
+if 'data_list' not in st.session_state:
+    st.session_state.data_list = []
+
+st.markdown("<h1 class='main-header'>🏢 Gestionnaire des Fournisseurs (Multi-Catégories)</h1>", unsafe_allow_html=True)
+
+tab1, tab2 = st.tabs(["📥 Importation Excel", "➕ Ajout Manuel"])
+
+with tab1:
+    uploaded_file = st.file_uploader("Charger un fichier Excel", type=['xlsx'])
+    if uploaded_file:
+        try:
+            xl = pd.ExcelFile(uploaded_file)
+            sheets = st.multiselect("Sélectionnez les feuilles (Les noms des feuilles seront les catégories) :", xl.sheet_names, default=xl.sheet_names)
+            
+            if st.button("🚀 Fusionner les données"):
+                new_added = 0
+                updated_cats = 0
+                for s in sheets:
+                    df_raw = pd.read_excel(uploaded_file, sheet_name=s, header=None)
+                    records = get_clean_records(df_raw, s)
+                    
+                    for rec in records:
+                        name_lower = rec['Nom du Fournisseur'].lower().strip()
+                        # البحث عن المورد الحالي في القائمة
+                        existing_idx = next((i for i, item in enumerate(st.session_state.data_list) if item['Nom du Fournisseur'].lower().strip() == name_lower), None)
+                        
+                        if existing_idx is None:
+                            # مورد جديد تماماً
+                            st.session_state.data_list.append(rec)
+                            new_added += 1
+                        else:
+                            # المورد موجود، نقوم بدمج الفئة الجديدة مع الفئات السابقة
+                            current_cats = str(st.session_state.data_list[existing_idx]['Catégories'])
+                            if s.strip() not in [c.strip() for c in current_cats.split('/')]:
+                                st.session_state.data_list[existing_idx]['Catégories'] = f"{current_cats} / {s}"
+                                updated_cats += 1
+                
+                st.success(f"✅ Terminé : {new_added} nouveaux fournisseurs et {updated_cats} mises à jour de catégories.")
+        except Exception as e:
+            st.error(f"Erreur : {str(e)}")
+
+with tab2:
+    with st.form("manual_entry", clear_on_submit=True):
         c1, c2 = st.columns(2)
         with c1:
-            name = st.text_input("اسم المورد/الشركة *")
-            category = st.text_input("الفئة/التخصص")
+            name = st.text_input("Nom de l'établissement *")
+            selected_cats = st.multiselect("Sélectionner des catégories", AVAILABLE_CATEGORIES)
+            custom_cat = st.text_input("Ou saisir une catégorie personnalisée (كتابة فئة أخرى)")
+            tel = st.text_input("Téléphone")
         with c2:
-            contact = st.text_input("معلومات الاتصال")
-            address = st.text_area("العنوان")
+            mob = st.text_input("Mobile")
+            mail = st.text_input("E-mail")
+            adr = st.text_area("Adresse")
         
-        if st.form_submit_button("💾 حفظ في القاعدة"):
+        if st.form_submit_button("💾 Enregistrer"):
             if name:
-                new_item = {
-                    "Nom": name, "Catégories": category, 
-                    "Contact": contact, "Adresse": address,
-                    "LastUpdate": datetime.now().strftime("%Y-%m-%d")
-                }
-                st.session_state.suppliers.append(new_item)
-                save_data(st.session_state.suppliers)
-                st.success("✅ تم الحفظ بنجاح")
-            else:
-                st.error("يرجى إدخال الاسم على الأقل")
-
-elif choice == "📋 عرض قاعدة البيانات":
-    st.subheader(f"🗄️ الموردون المسجلون ({len(st.session_state.suppliers)})")
-    
-    if st.session_state.suppliers:
-        df = pd.DataFrame(st.session_state.suppliers)
-        
-        # البحث
-        search = st.text_input("🔍 ابحث عن مورد، فئة، أو رقم هاتف:")
-        if search:
-            df = df[df.apply(lambda row: search.lower() in row.astype(str).str.lower().str.cat(), axis=1)]
-        
-        st.dataframe(df, use_container_width=True, hide_index=True)
-        
-        # تصدير
-        towrite = io.BytesIO()
-        df.to_excel(towrite, index=False, engine='xlsxwriter')
-        st.download_button(label="📥 تحميل القاعدة كاملة (Excel)", data=towrite.getvalue(), file_name="Suppliers_Database.xlsx")
-        
-        if st.sidebar.button("⚠️ مسح كافة البيانات"):
-            st.session_state.suppliers = []
-            save_data([])
+                # دمج الفئات المختارة مع الفئة المكتوبة يدوياً
+                all_cats = list(selected_cats)
+                if custom_cat.strip():
+                    all_cats.append(custom_cat.strip())
+                
+                cat_string = " / ".join(all_cats) if all_cats else "Général"
+                name_lower = name.lower().strip()
+                existing_idx = next((i for i, item in enumerate(st.session_state.data_list) if item['Nom du Fournisseur'].lower().strip() == name_lower), None)
+                
+                if existing_idx is None:
+                    st.session_state.data_list.append({
+                        "Nom du Fournisseur": name, "Catégories": cat_string, 
+                        "Téléphone": tel, "Mobile": mob, "Adresse": adr, "E-mail": mail
+                    })
+                    st.success("Mورد جديد أضيف بنجاح")
+                else:
+                    # دمج الفئات يدوياً إذا أضيف نفس المورد
+                    current = str(st.session_state.data_list[existing_idx]['Catégories'])
+                    current_list = [c.strip() for c in current.split('/')]
+                    
+                    for c in all_cats:
+                        if c not in current_list:
+                            current = f"{current} / {c}"
+                    
+                    st.session_state.data_list[existing_idx]['Catégories'] = current
+                    st.info("تم تحديث فئات المورد الموجود مسبقاً")
             st.rerun()
-    else:
-        st.info("قاعدة البيانات فارغة حالياً. قم برفع ملف إكسيل للبدء.")
+
+# 4. عرض النتائج
+st.divider()
+if st.session_state.data_list:
+    df_final = pd.DataFrame(st.session_state.data_list)
+    st.subheader(f"📋 Liste Unifiée ({len(df_final)} fournisseurs)")
+    
+    search = st.text_input("🔍 Rechercher un fournisseur ou une catégorie :")
+    if search:
+        mask = df_final.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
+        df_final = df_final[mask]
+
+    st.dataframe(df_final, use_container_width=True, hide_index=True)
+    
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        out = io.BytesIO()
+        df_final.to_excel(out, index=False, engine='openpyxl')
+        st.download_button("📥 Exporter Excel", out.getvalue(), "base_fournisseurs.xlsx")
+    with col2:
+        if st.button("🗑️ Vider la base"):
+            st.session_state.data_list = []
+            st.rerun()
