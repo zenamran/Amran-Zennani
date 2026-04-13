@@ -11,7 +11,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# تصميم الواجهة (نفس واجهتك الأصلية)
+# تصميم الواجهة
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600&display=swap');
@@ -25,6 +25,7 @@ st.markdown("""
 APP_ID = "fournisseurs_pro_v2"
 
 def init_db():
+    """تهيئة الاتصال بقاعدة البيانات السحابية"""
     if not _apps:
         try:
             if "firebase" in st.secrets:
@@ -40,14 +41,17 @@ def init_db():
 db = init_db()
 
 def save_to_cloud(record):
-    """حفظ مورد واحد في السحابة"""
+    """حفظ أو تحديث بيانات مورد في السحابة"""
     if db:
-        # تنظيف الاسم لاستخدامه كمعرف مستند
-        doc_id = record['Nom du Fournisseur'].replace("/", "-").replace(".", "").strip()
-        db.collection('artifacts', APP_ID, 'public', 'data', 'suppliers').document(doc_id).set(record)
+        try:
+            # تنظيف الاسم لاستخدامه كمعرف مستند (Document ID)
+            doc_id = record['Nom du Fournisseur'].replace("/", "-").replace(".", "").strip()
+            db.collection('artifacts', APP_ID, 'public', 'data', 'suppliers').document(doc_id).set(record)
+        except Exception as e:
+            st.error(f"خطأ في الحفظ السحابي: {e}")
 
 def load_from_cloud():
-    """جلب جميع الموردين من السحابة"""
+    """جلب كافة البيانات من السحابة عند بدء التطبيق"""
     if db:
         try:
             docs = db.collection('artifacts', APP_ID, 'public', 'data', 'suppliers').stream()
@@ -56,7 +60,7 @@ def load_from_cloud():
             return []
     return []
 
-# قائمة الفئات
+# قائمة الفئات الافتراضية
 AVAILABLE_CATEGORIES = [
     "Mécanique", "Électricité", "Plomberie", "PPE / Protection", 
     "Consommables", "Pièces de rechange", "Outillage", 
@@ -67,8 +71,8 @@ AVAILABLE_CATEGORIES = [
 def get_clean_records(df_raw, category_name):
     if df_raw.empty: return []
     
-    # تحويل كل شيء لنص فوراً لحل مشكلة (float found) التي ظهرت في صورك
-    df = df_raw.fillna("").astype(str)
+    # تحويل البيانات لنصوص لتفادي أخطاء النوع (float/int)
+    df = df_raw.fillna("").astype(str).replace(['nan', 'None', 'NaN', 'null'], '')
     
     mapping = {
         'Nom du Fournisseur': ['nom', 'fournisseur', 'designation', 'désignation', 'société', 'company', 'اسم', 'المورد', 'établissement'],
@@ -108,7 +112,7 @@ def get_clean_records(df_raw, category_name):
                 records.append(record)
     return records
 
-# 3. إدارة الحالة (تحميل البيانات عند فتح الموقع)
+# 3. إدارة الحالة (تحميل البيانات من السحابة عند الفتح)
 if 'data_list' not in st.session_state:
     st.session_state.data_list = load_from_cloud()
 
@@ -123,8 +127,9 @@ with tab1:
             xl = pd.ExcelFile(uploaded_file)
             sheets = st.multiselect("Sélectionnez les feuilles :", xl.sheet_names, default=xl.sheet_names)
             
-            if st.button("🚀 Fusionner و حفظ في السحابة"):
+            if st.button("🚀 Fusionner و المزامنة مع السحابة"):
                 new_added = 0
+                updated_count = 0
                 for s in sheets:
                     df_raw = pd.read_excel(uploaded_file, sheet_name=s, header=None)
                     records = get_clean_records(df_raw, s)
@@ -135,16 +140,17 @@ with tab1:
                         
                         if existing_idx is None:
                             st.session_state.data_list.append(rec)
-                            save_to_cloud(rec) # حفظ في السحابة
+                            save_to_cloud(rec)
                             new_added += 1
                         else:
                             # دمج الفئات إذا كان المورد موجوداً
                             current_cats = str(st.session_state.data_list[existing_idx]['Catégories'])
                             if s.strip() not in [c.strip() for c in current_cats.split('/')]:
                                 st.session_state.data_list[existing_idx]['Catégories'] = f"{current_cats} / {s}"
-                                save_to_cloud(st.session_state.data_list[existing_idx]) # تحديث السحابة
+                                save_to_cloud(st.session_state.data_list[existing_idx])
+                                updated_count += 1
                 
-                st.success(f"✅ تم المزامنة سحابياً! أضيف {new_added} موردين.")
+                st.success(f"✅ تم التحديث! إضافة {new_added} مورد وتحديث فئات {updated_count} آخرين سحابياً.")
         except Exception as e:
             st.error(f"Erreur : {str(e)}")
 
@@ -167,30 +173,34 @@ with tab2:
                 if custom_cat.strip(): all_cats.append(custom_cat.strip())
                 cat_string = " / ".join(all_cats) if all_cats else "Général"
                 
-                existing_idx = next((i for i, item in enumerate(st.session_state.data_list) if item['Nom du Fournisseur'].lower().strip() == name.lower().strip()), None)
+                name_clean = name.strip()
+                existing_idx = next((i for i, item in enumerate(st.session_state.data_list) if item['Nom du Fournisseur'].lower().strip() == name_clean.lower()), None)
                 
                 if existing_idx is None:
-                    new_rec = {"Nom du Fournisseur": name, "Catégories": cat_string, "Téléphone": tel, "Mobile": mob, "Adresse": adr, "E-mail": mail, "FAX": ""}
+                    new_rec = {
+                        "Nom du Fournisseur": name_clean, "Catégories": cat_string, 
+                        "Téléphone": tel, "Mobile": mob, "Adresse": adr, "E-mail": mail, "FAX": ""
+                    }
                     st.session_state.data_list.append(new_rec)
                     save_to_cloud(new_rec)
+                    st.success("✅ تم إضافة مورد جديد سحابياً")
                 else:
-                    # دمج فئات
                     current = str(st.session_state.data_list[existing_idx]['Catégories'])
                     for c in all_cats:
                         if c not in current: current = f"{current} / {c}"
                     st.session_state.data_list[existing_idx]['Catégories'] = current
                     save_to_cloud(st.session_state.data_list[existing_idx])
+                    st.info("✅ تم تحديث بيانات المورد في السحابة")
                 
-                st.success("✅ تم الحفظ السحابي")
                 st.rerun()
 
 # 4. عرض النتائج الدائمة
 st.divider()
 if st.session_state.data_list:
     df_final = pd.DataFrame(st.session_state.data_list)
-    st.subheader(f"📋 Liste Cloud ({len(df_final)} fournisseurs)")
+    st.subheader(f"📋 Liste Cloud Sync ({len(df_final)} fournisseurs)")
     
-    search = st.text_input("🔍 البحث في القاعدة السحابية:")
+    search = st.text_input("🔍 البحث في قاعدة البيانات السحابية:")
     if search:
         mask = df_final.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
         df_final = df_final[mask]
@@ -201,11 +211,15 @@ if st.session_state.data_list:
     with col1:
         out = io.BytesIO()
         df_final.to_excel(out, index=False)
-        st.download_button("📥 Exporter Excel", out.getvalue(), "base_fournisseurs.xlsx")
+        st.download_button("📥 Exporter Excel", out.getvalue(), "base_fournisseurs_cloud.xlsx")
     with col2:
         if st.button("🗑️ مسح القاعدة السحابية بالكامل"):
             if db:
-                docs = db.collection('artifacts', APP_ID, 'public', 'data', 'suppliers').stream()
-                for d in docs: d.reference.delete()
-            st.session_state.data_list = []
-            st.rerun()
+                try:
+                    docs = db.collection('artifacts', APP_ID, 'public', 'data', 'suppliers').stream()
+                    for d in docs: d.reference.delete()
+                    st.session_state.data_list = []
+                    st.success("تم مسح البيانات من السحابة")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"خطأ أثناء المسح: {e}")
