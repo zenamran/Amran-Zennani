@@ -33,6 +33,7 @@ def get_clean_records(df_raw, category_name):
         'Téléphone': ['tél', 'tel', 'phone', 'fixe', 'هاتف', 'الفاكس', 'fax'],
         'Mobile': ['mobile', 'mob', 'محمول', 'جوال', 'رقم'],
         'E-mail': ['email', 'e-mail', 'mail', 'البريد', 'إيميل']
+        'FAX': ['FAX', 'Fax', 'fax']
     }
 
     # البحث عن سطر العنوان
