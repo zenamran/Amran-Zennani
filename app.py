@@ -1,216 +1,175 @@
 import streamlit as st
 import pandas as pd
 import io
-import json
-import os
-from firebase_admin import credentials, firestore, initialize_app, _apps
 
-# 1. إعدادات الصفحة
+# 1. إعدادات الصفحة الأساسية
 st.set_page_config(
-    page_title="Système de Gestion des Fournisseurs",
+    page_title="Système Pro - Gestion des Fournisseurs",
     page_icon="🏢",
     layout="wide"
 )
 
-# 2. تهيئة Firebase لحفظ البيانات بشكل دائم
-# ملاحظة: يتم استخدام المتغيرات البيئية الموفرة في البيئة التشغيلية
-def init_firestore():
-    if not _apps:
-        try:
-            # محاولة الحصول على الإعدادات من secrets أو المتغيرات العالمية
-            if "firebase" in st.secrets:
-                creds_dict = dict(st.secrets["firebase"])
-                cred = credentials.Certificate(creds_dict)
-                initialize_app(cred)
-            else:
-                # في بيئة التطوير المحلية، سيحاول استخدام الافتراضي
-                # إذا لم يتوفر Firebase، سيعمل التطبيق في الذاكرة (Session State) فقط
-                return None
-        except Exception:
-            return None
-    return firestore.client()
-
-db = init_firestore()
-APP_ID = "fournisseurs-manager" # معرف فريد للتطبيق
-
-# وظائف قاعدة البيانات
-def save_to_cloud(data_list):
-    if db:
-        # المسار المعتمد: /artifacts/{appId}/public/data/{collectionName}
-        for item in data_list:
-            doc_id = item['Nom du Fournisseur'].replace("/", "-").strip()
-            db.collection('artifacts', APP_ID, 'public', 'data', 'suppliers').document(doc_id).set(item)
-
-def load_from_cloud():
-    if db:
-        try:
-            docs = db.collection('artifacts', APP_ID, 'public', 'data', 'suppliers').stream()
-            return [doc.to_dict() for doc in docs]
-        except Exception:
-            return []
-    return []
-
-# 3. تصميم الواجهة
+# تصميم واجهة المستخدم بلمسة احترافية
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600&display=swap');
-    html, body, [class*="css"] { font-family: 'Segoe UI', sans-serif; }
-    .main-header { color: #1E293B; font-weight: 700; border-bottom: 3px solid #10B981; padding-bottom: 10px; }
-    .stAlert { direction: rtl; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    .main-header { color: #2E7D32; font-weight: bold; border-bottom: 2px solid #2E7D32; padding-bottom: 10px; margin-bottom: 20px; }
+    .status-box { padding: 10px; border-radius: 5px; margin-bottom: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-AVAILABLE_CATEGORIES = [
-    "Mécanique", "Électricité", "Plomberie", "PPE / Protection", 
-    "Consommables", "Pièces de rechange", "Outillage", 
-    "Maintenance", "Informatique", "Produits Chimiques", "BTP"
-]
+# 2. إدارة البيانات في الذاكرة (مع توفير خيار الحفظ المحلي)
+if 'suppliers_db' not in st.session_state:
+    st.session_state.suppliers_db = []
 
-# وظيفة معالجة الإكسيل
-def get_clean_records(df_raw, category_name):
-    if df_raw.empty: return []
+# وظيفة لتنظيف البيانات وحل مشكلة (float found) التي ظهرت في الصور
+def safe_str(val):
+    """تحويل أي قيمة إلى نص بشكل آمن وتجنب أخطاء القيم الفارغة"""
+    if pd.isna(val) or val is None:
+        return ""
+    return str(val).strip()
+
+def process_excel_sheet(df_raw, sheet_name):
+    """معالجة ورقة الإكسيل بمرونة عالية"""
+    if df_raw.empty:
+        return []
+    
+    # تحويل كافة البيانات لنصوص فوراً لتجنب خطأ sequence item 0: expected str instance
     df = df_raw.astype(str).replace(['nan', 'None', 'NaN', 'null'], '')
+    
+    # البحث عن الأعمدة
     mapping = {
-        'Nom du Fournisseur': ['nom', 'fournisseur', 'designation', 'désignation', 'société', 'company', 'اسم', 'المورد', 'établissement'],
+        'Nom': ['nom', 'fournisseur', 'designation', 'désignation', 'société', 'company', 'اسم', 'المورد', 'établissement'],
         'Adresse': ['adresse', 'address', 'lieu', 'wilaya', 'عنوان', 'مقر', 'localisation', 'ville'],
-        'Téléphone': ['tél', 'tel', 'phone', 'fixe', 'هاتف', 'الفاكس', 'fax'],
-        'Mobile': ['mobile', 'mob', 'محمول', 'جوال', 'رقم'],
-        'E-mail': ['email', 'e-mail', 'mail', 'البريد', 'إيميل']
+        'Tel': ['tél', 'tel', 'phone', 'fixe', 'هاتف', 'الفاكس', 'fax', 'mobile', 'mob', 'محمول']
     }
-    header_idx = -1
+    
+    header_row = -1
     col_map = {}
-    for i in range(min(50, len(df))):
-        row = [str(x).lower() for x in df.iloc[i].values]
-        current_map = {}
+    
+    # فحص أول 20 سطر للبحث عن العناوين
+    for i in range(min(20, len(df))):
+        row_values = [str(x).lower() for x in df.iloc[i].values]
+        temp_map = {}
         matches = 0
         for target, keys in mapping.items():
-            for idx, cell in enumerate(row):
+            for idx, cell in enumerate(row_values):
                 if any(k in cell for k in keys):
-                    current_map[idx] = target
+                    temp_map[target] = idx
                     matches += 1
                     break
         if matches >= 1:
-            header_idx, col_map = i, current_map
+            header_row, col_map = i, temp_map
             break
-
-    records = []
-    if header_idx != -1:
-        data_rows = df.iloc[header_idx + 1:]
-        for _, row in data_rows.iterrows():
-            record = {'Catégories': category_name}
-            for target in mapping.keys(): record[target] = ""
-            for col_idx, target_name in col_map.items():
-                record[target_name] = str(row.iloc[col_idx]).strip()
-            if record.get('Nom du Fournisseur') and record['Nom du Fournisseur'].lower() not in ['nom', 'designation', 'fournisseur', 'اسم']:
-                records.append(record)
-    return records
-
-# 4. إدارة الحالة والبيانات
-if 'data_list' not in st.session_state:
-    # محاولة تحميل البيانات من السحابة عند البداية
-    cloud_data = load_from_cloud()
-    st.session_state.data_list = cloud_data if cloud_data else []
-
-st.markdown("<h1 class='main-header'>🏢 Gestionnaire des Fournisseurs (Cloud Sync)</h1>", unsafe_allow_html=True)
-
-if not db:
-    st.warning("⚠️ التطبيق يعمل حالياً في وضع الذاكرة المؤقتة. لحفظ البيانات بشكل دائم، يرجى ربط Firestore.")
-
-tab1, tab2 = st.tabs(["📥 Importation Excel", "➕ Ajout Manuel"])
-
-with tab1:
-    uploaded_file = st.file_uploader("Charger un fichier Excel", type=['xlsx'])
-    if uploaded_file:
-        try:
-            xl = pd.ExcelFile(uploaded_file)
-            sheets = st.multiselect("Sélectionnez les feuilles (Catégories) :", xl.sheet_names, default=xl.sheet_names)
             
-            if st.button("🚀 Fusionner et Sauvegarder"):
-                new_added = 0
-                for s in sheets:
-                    df_raw = pd.read_excel(uploaded_file, sheet_name=s, header=None)
-                    records = get_clean_records(df_raw, s)
-                    
-                    for rec in records:
-                        name_lower = rec['Nom du Fournisseur'].lower().strip()
-                        existing_idx = next((i for i, item in enumerate(st.session_state.data_list) if item['Nom du Fournisseur'].lower().strip() == name_lower), None)
-                        
-                        if existing_idx is None:
-                            st.session_state.data_list.append(rec)
-                            new_added += 1
-                        else:
-                            current_cats = str(st.session_state.data_list[existing_idx]['Catégories'])
-                            if s.strip() not in [c.strip() for c in current_cats.split('/')]:
-                                st.session_state.data_list[existing_idx]['Catégories'] = f"{current_cats} / {s}"
-                
-                # حفظ التغييرات في السحابة
-                save_to_cloud(st.session_state.data_list)
-                st.success(f"✅ تم دمج وحفظ {new_added} موردين جدد بنجاح.")
-        except Exception as e:
-            st.error(f"Erreur : {str(e)}")
+    extracted = []
+    if header_row != -1:
+        data_part = df.iloc[header_row + 1:]
+        for _, row in data_part.iterrows():
+            name = safe_str(row.iloc[col_map['Nom']]) if 'Nom' in col_map else safe_str(row.iloc[0])
+            if name and name.lower() not in ['nom', 'fournisseur', 'designation', 'اسم', '']:
+                entry = {
+                    "Nom": name,
+                    "Catégories": str(sheet_name),
+                    "Adresse": safe_str(row.iloc[col_map['Adresse']]) if 'Adresse' in col_map else "",
+                    "Contact": safe_str(row.iloc[col_map['Tel']]) if 'Tel' in col_map else ""
+                }
+                extracted.append(entry)
+    return extracted
 
-with tab2:
-    with st.form("manual_entry", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            name = st.text_input("Nom de l'établissement *")
-            selected_cats = st.multiselect("Sélectionner des catégories", AVAILABLE_CATEGORIES)
-            custom_cat = st.text_input("Ou saisir une catégorie (كتابة فئة أخرى)")
-            tel = st.text_input("Téléphone")
-        with c2:
-            mob = st.text_input("Mobile")
-            mail = st.text_input("E-mail")
-            adr = st.text_area("Adresse")
+# 3. واجهة التطبيق
+st.markdown("<h1 class='main-header'>🏢 مدير قاعدة بيانات الموردين الذكي</h1>", unsafe_allow_html=True)
+
+menu = ["📂 استيراد ودمج البيانات", "➕ إضافة مورد يدوياً", "📋 عرض وتحميل القاعدة"]
+choice = st.sidebar.selectbox("القائمة الرئيسية", menu)
+
+if choice == "📂 استيراد ودمج البيانات":
+    st.subheader("تحميل ملفات Excel")
+    file = st.file_uploader("اختر ملف .xlsx", type="xlsx")
+    
+    if file:
+        xl = pd.ExcelFile(file)
+        all_sheets = xl.sheet_names
+        selected_sheets = st.multiselect("اختر أوراق العمل المراد دمجها:", all_sheets, default=all_sheets)
         
-        if st.form_submit_button("💾 Enregistrer dans le Cloud"):
+        if st.button("🚀 بدء عملية المعالجة والدمج"):
+            progress_bar = st.progress(0)
+            new_records = 0
+            
+            for i, sheet in enumerate(selected_sheets):
+                try:
+                    df_sheet = pd.read_excel(file, sheet_name=sheet, header=None)
+                    results = process_excel_sheet(df_sheet, sheet)
+                    
+                    for item in results:
+                        # البحث عن المورد الحالي لدمج الفئات
+                        existing = next((x for x in st.session_state.suppliers_db if x['Nom'].lower() == item['Nom'].lower()), None)
+                        
+                        if existing:
+                            # إذا وجد المورد، ندمج الفئة بفاصل /
+                            if item['Catégories'] not in existing['Catégories']:
+                                existing['Catégories'] += f" / {item['Catégories']}"
+                        else:
+                            st.session_state.suppliers_db.append(item)
+                            new_records += 1
+                except Exception as e:
+                    st.error(f"خطأ في ورقة {sheet}: {str(e)}")
+                
+                progress_bar.progress((i + 1) / len(selected_sheets))
+            
+            st.success(f"✅ تمت العملية بنجاح! تم إضافة {new_records} مورد جديد وتحديث التخصصات للبقية.")
+
+elif choice == "➕ إضافة مورد يدوياً":
+    st.subheader("إدخال مورد جديد")
+    with st.form("manual_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            name = st.text_input("اسم الشركة/المورد *")
+            cats = st.text_input("التخصصات (مثال: ميكانيك / أدوات)")
+        with col2:
+            contact = st.text_input("رقم الهاتف / البريد")
+            address = st.text_area("العنوان الكامل")
+            
+        if st.form_submit_button("حفظ المورد"):
             if name:
-                all_cats = list(selected_cats)
-                if custom_cat.strip(): all_cats.append(custom_cat.strip())
-                cat_string = " / ".join(all_cats) if all_cats else "Général"
-                
-                name_lower = name.lower().strip()
-                existing_idx = next((i for i, item in enumerate(st.session_state.data_list) if item['Nom du Fournisseur'].lower().strip() == name_lower), None)
-                
-                if existing_idx is None:
-                    new_rec = {"Nom du Fournisseur": name, "Catégories": cat_string, "Téléphone": tel, "Mobile": mob, "Adresse": adr, "E-mail": mail}
-                    st.session_state.data_list.append(new_rec)
+                existing = next((x for x in st.session_state.suppliers_db if x['Nom'].lower() == name.lower()), None)
+                if existing:
+                    existing['Catégories'] += f" / {cats}"
+                    st.info("المورد موجود مسبقاً، تم تحديث فئاته.")
                 else:
-                    current = str(st.session_state.data_list[existing_idx]['Catégories'])
-                    current_list = [c.strip() for c in current.split('/')]
-                    for c in all_cats:
-                        if c not in current_list: current = f"{current} / {c}"
-                    st.session_state.data_list[existing_idx]['Catégories'] = current
-                
-                # حفظ الكل
-                save_to_cloud(st.session_state.data_list)
-                st.success("✅ تم الحفظ والمزامنة مع السحابة")
-                st.rerun()
+                    st.session_state.suppliers_db.append({"Nom": name, "Catégories": cats, "Contact": contact, "Adresse": address})
+                    st.success("تم الحفظ بنجاح.")
+            else:
+                st.error("الاسم مطلوب!")
 
-# 5. عرض النتائج
-st.divider()
-if st.session_state.data_list:
-    df_final = pd.DataFrame(st.session_state.data_list)
-    st.subheader(f"📋 Liste Unifiée ({len(df_final)} fournisseurs)")
+elif choice == "📋 عرض وتحميل القاعدة":
+    st.subheader("قاعدة البيانات الموحدة")
     
-    search = st.text_input("🔍 Rechercher (nom, catégorie...) :")
-    if search:
-        mask = df_final.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
-        df_final = df_final[mask]
-
-    st.dataframe(df_final, use_container_width=True, hide_index=True)
-    
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        out = io.BytesIO()
-        df_final.to_excel(out, index=False, engine='openpyxl')
-        st.download_button("📥 Exporter Excel", out.getvalue(), "base_fournisseurs.xlsx")
-    with col2:
-        if st.button("🗑️ Vider la base (Action Irréversible)"):
-            if db:
-                # حذف من السحابة (للتبسيط نحذف من القائمة ونعيد الكتابة أو نحذف المجموعة)
-                docs = db.collection('artifacts', APP_ID, 'public', 'data', 'suppliers').stream()
-                for doc in docs: doc.reference.delete()
-            st.session_state.data_list = []
+    if st.session_state.suppliers_db:
+        df_display = pd.DataFrame(st.session_state.suppliers_db)
+        
+        # محرك بحث داخلي
+        search = st.text_input("🔍 بحث سريع عن مورد أو فئة:")
+        if search:
+            df_display = df_display[df_display.apply(lambda r: search.lower() in str(r).lower(), axis=1)]
+            
+        st.dataframe(df_display, use_container_width=True)
+        
+        # تصدير البيانات
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            df_display.to_excel(writer, index=False, sheet_name='Fournisseurs')
+        
+        st.download_button(
+            label="📥 تحميل القاعدة كاملة (Excel)",
+            data=buffer.getvalue(),
+            file_name="Base_Fournisseurs_Optimisee.xlsx",
+            mime="application/vnd.ms-excel"
+        )
+        
+        if st.button("🗑️ مسح كافة البيانات"):
+            st.session_state.suppliers_db = []
             st.rerun()
-else:
-    st.info("Aucune donnée enregistrée. Importez un fichier pour commencer.")
+    else:
+        st.info("قاعدة البيانات فارغة حالياً. قم باستيراد ملف إكسيل للبدء.")
