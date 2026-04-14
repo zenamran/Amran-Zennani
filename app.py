@@ -1,3 +1,5 @@
+import firebase_admin
+from firebase_admin import credentials, firestore
 import streamlit as st
 import pandas as pd
 import io
@@ -153,7 +155,11 @@ with tab2:
                     st.session_state.data_list[existing_idx]['Catégories'] = current
                     st.info("تم تحديث فئات المورد الموجود مسبقاً")
             st.rerun()
+if not firebase_admin._apps:
+    cred = credentials.Certificate("firebase_key.json")
+    firebase_admin.initialize_app(cred)
 
+db = firestore.client()
 # 4. عرض النتائج
 st.divider()
 if st.session_state.data_list:
