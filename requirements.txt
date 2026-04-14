@@ -1,8 +1,6 @@
 streamlit
-st-gsheets-connection
 pandas
 openpyxl
-xlsxwriter
 google-cloud-firestore
 google-auth
 protobuf
