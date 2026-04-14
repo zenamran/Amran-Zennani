@@ -1,6 +1,11 @@
 import streamlit as st
 import pandas as pd
 import io
+import os
+from datetime import datetime
+from google.cloud import firestore
+from google.oauth2 import service_account
+import json
 
 # 1. الإعدادات العامة للصفحة
 st.set_page_config(
@@ -18,6 +23,38 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# --- إعداد الاتصال السحابي (Firestore) ---
+def get_db_connection():
+    try:
+        # البحث عن بيانات الاعتماد في secrets (يتم ضبطها في Streamlit Cloud)
+        creds_dict = json.loads(st.secrets["textkey"])
+        creds = service_account.Credentials.from_service_account_info(creds_dict)
+        return firestore.Client(credentials=creds, project=creds_dict['project_id'])
+    except:
+        return None
+
+db = get_db_connection()
+app_id = "suppliers_manager_v1" # معرف فريد لقاعدة بياناتك
+
+def load_cloud_data():
+    if db:
+        try:
+            doc_ref = db.collection("artifacts").document(app_id)
+            doc = doc_ref.get()
+            if doc.exists:
+                return doc.to_dict().get("suppliers", [])
+        except:
+            pass
+    return []
+
+def save_cloud_data(data_list):
+    if db:
+        try:
+            doc_ref = db.collection("artifacts").document(app_id)
+            doc_ref.set({"suppliers": data_list})
+        except Exception as e:
+            st.error(f"خطأ في الحفظ السحابي: {e}")
+
 # قائمة الفئات الافتراضية
 AVAILABLE_CATEGORIES = [
     "Mécanique", "Électricité", "Plomberie", "PPE / Protection", 
@@ -25,7 +62,7 @@ AVAILABLE_CATEGORIES = [
     "Maintenance", "Informatique", "Produits Chimiques", "BTP"
 ]
 
-# 2. وظيفة المعالجة - تحويل البيانات لسجلات ذكية تدمج الفئات
+# 2. وظيفة المعالجة
 def get_clean_records(df_raw, category_name):
     if df_raw.empty: return []
     
@@ -69,11 +106,11 @@ def get_clean_records(df_raw, category_name):
                 records.append(record)
     return records
 
-# 3. إدارة الحالة (Session State)
+# 3. إدارة الحالة (Session State) - تم ربطها بالسحاب هنا
 if 'data_list' not in st.session_state:
-    st.session_state.data_list = []
+    st.session_state.data_list = load_cloud_data()
 
-st.markdown("<h1 class='main-header'>🏢 Gestionnaire des Fournisseurs (Multi-Catégories)</h1>", unsafe_allow_html=True)
+st.markdown("<h1 class='main-header'>🏢 Gestionnaire des Fournisseurs (Cloud Storage)</h1>", unsafe_allow_html=True)
 
 tab1, tab2 = st.tabs(["📥 Importation Excel", "➕ Ajout Manuel"])
 
@@ -82,7 +119,7 @@ with tab1:
     if uploaded_file:
         try:
             xl = pd.ExcelFile(uploaded_file)
-            sheets = st.multiselect("Sélectionnez les feuilles (Les noms des feuilles seront les catégories) :", xl.sheet_names, default=xl.sheet_names)
+            sheets = st.multiselect("Sélectionnez les feuilles :", xl.sheet_names, default=xl.sheet_names)
             
             if st.button("🚀 Fusionner les données"):
                 new_added = 0
@@ -93,21 +130,20 @@ with tab1:
                     
                     for rec in records:
                         name_lower = rec['Nom du Fournisseur'].lower().strip()
-                        # البحث عن المورد الحالي في القائمة
                         existing_idx = next((i for i, item in enumerate(st.session_state.data_list) if item['Nom du Fournisseur'].lower().strip() == name_lower), None)
                         
                         if existing_idx is None:
-                            # مورد جديد تماماً
                             st.session_state.data_list.append(rec)
                             new_added += 1
                         else:
-                            # المورد موجود، نقوم بدمج الفئة الجديدة مع الفئات السابقة
                             current_cats = str(st.session_state.data_list[existing_idx]['Catégories'])
                             if s.strip() not in [c.strip() for c in current_cats.split('/')]:
                                 st.session_state.data_list[existing_idx]['Catégories'] = f"{current_cats} / {s}"
                                 updated_cats += 1
                 
-                st.success(f"✅ Terminé : {new_added} nouveaux fournisseurs et {updated_cats} mises à jour de catégories.")
+                # حفظ في السحاب بعد الدمج
+                save_cloud_data(st.session_state.data_list)
+                st.success(f"✅ Terminé : {new_added} nouveaux fournisseurs et {updated_cats} mises à jour.")
         except Exception as e:
             st.error(f"Erreur : {str(e)}")
 
@@ -117,7 +153,7 @@ with tab2:
         with c1:
             name = st.text_input("Nom de l'établissement *")
             selected_cats = st.multiselect("Sélectionner des catégories", AVAILABLE_CATEGORIES)
-            custom_cat = st.text_input("Ou saisir une catégorie personnalisée (كتابة فئة أخرى)")
+            custom_cat = st.text_input("Ou saisir une catégorie personnalisée")
             tel = st.text_input("Téléphone")
         with c2:
             mob = st.text_input("Mobile")
@@ -126,11 +162,8 @@ with tab2:
         
         if st.form_submit_button("💾 Enregistrer"):
             if name:
-                # دمج الفئات المختارة مع الفئة المكتوبة يدوياً
                 all_cats = list(selected_cats)
-                if custom_cat.strip():
-                    all_cats.append(custom_cat.strip())
-                
+                if custom_cat.strip(): all_cats.append(custom_cat.strip())
                 cat_string = " / ".join(all_cats) if all_cats else "Général"
                 name_lower = name.lower().strip()
                 existing_idx = next((i for i, item in enumerate(st.session_state.data_list) if item['Nom du Fournisseur'].lower().strip() == name_lower), None)
@@ -140,19 +173,16 @@ with tab2:
                         "Nom du Fournisseur": name, "Catégories": cat_string, 
                         "Téléphone": tel, "Mobile": mob, "Adresse": adr, "E-mail": mail
                     })
-                    st.success("Mورد جديد أضيف بنجاح")
                 else:
-                    # دمج الفئات يدوياً إذا أضيف نفس المورد
                     current = str(st.session_state.data_list[existing_idx]['Catégories'])
                     current_list = [c.strip() for c in current.split('/')]
-                    
                     for c in all_cats:
-                        if c not in current_list:
-                            current = f"{current} / {c}"
-                    
+                        if c not in current_list: current = f"{current} / {c}"
                     st.session_state.data_list[existing_idx]['Catégories'] = current
-                    st.info("تم تحديث فئات المورد الموجود مسبقاً")
-            st.rerun()
+                
+                # حفظ في السحاب بعد الإضافة اليدوية
+                save_cloud_data(st.session_state.data_list)
+                st.rerun()
 
 # 4. عرض النتائج
 st.divider()
@@ -160,7 +190,7 @@ if st.session_state.data_list:
     df_final = pd.DataFrame(st.session_state.data_list)
     st.subheader(f"📋 Liste Unifiée ({len(df_final)} fournisseurs)")
     
-    search = st.text_input("🔍 Rechercher un fournisseur ou une catégorie :")
+    search = st.text_input("🔍 Rechercher :")
     if search:
         mask = df_final.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
         df_final = df_final[mask]
@@ -175,4 +205,5 @@ if st.session_state.data_list:
     with col2:
         if st.button("🗑️ Vider la base"):
             st.session_state.data_list = []
+            save_cloud_data([]) # مسح من السحاب أيضاً
             st.rerun()
