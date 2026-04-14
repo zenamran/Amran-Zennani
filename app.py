@@ -1,209 +1,122 @@
 import streamlit as st
 import pandas as pd
 import io
-import os
-from datetime import datetime
+import json
 from google.cloud import firestore
 from google.oauth2 import service_account
-import json
 
-# 1. الإعدادات العامة للصفحة
-st.set_page_config(
-    page_title="Système de Gestion des Fournisseurs",
-    page_icon="🏢",
-    layout="wide"
-)
+# 1. إعدادات الصفحة
+st.set_page_config(page_title="نظام إدارة الموردين السحابي", layout="wide", page_icon="🏢")
 
-# تصميم الواجهة
+# تنسيق الواجهة (RTL)
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600&display=swap');
-    html, body, [class*="css"] { font-family: 'Segoe UI', sans-serif; }
-    .main-header { color: #1E293B; font-weight: 700; border-bottom: 3px solid #10B981; padding-bottom: 10px; }
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+    html, body, [class*="st-"] { font-family: 'Cairo', sans-serif; direction: rtl; text-align: right; }
+    .stButton>button { background-color: #10B981; color: white; border-radius: 8px; }
+    .stAlert { direction: rtl; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- إعداد الاتصال السحابي (Firestore) ---
-def get_db_connection():
+# 2. ربط قاعدة البيانات السحابية (Firestore)
+def init_connection():
     try:
-        # البحث عن بيانات الاعتماد في secrets (يتم ضبطها في Streamlit Cloud)
-        creds_dict = json.loads(st.secrets["textkey"])
-        creds = service_account.Credentials.from_service_account_info(creds_dict)
-        return firestore.Client(credentials=creds, project=creds_dict['project_id'])
-    except:
-        return None
+        # البحث عن المفتاح في إعدادات Streamlit Secrets
+        if "textkey" in st.secrets:
+            key_dict = json.loads(st.secrets["textkey"])
+            creds = service_account.Credentials.from_service_account_info(key_dict)
+            return firestore.Client(credentials=creds, project=key_dict['project_id'])
+    except Exception as e:
+        st.sidebar.error(f"⚠️ فشل الاتصال بالسحاب: {e}")
+    return None
 
-db = get_db_connection()
-app_id = "suppliers_manager_v1" # معرف فريد لقاعدة بياناتك
+db = init_connection()
+COLLECTION_NAME = "suppliers_data"
+DOCUMENT_ID = "main_registry"
 
-def load_cloud_data():
+# 3. وظائف جلب وحفظ البيانات
+def load_data_from_cloud():
     if db:
         try:
-            doc_ref = db.collection("artifacts").document(app_id)
+            doc_ref = db.collection(COLLECTION_NAME).document(DOCUMENT_ID)
             doc = doc_ref.get()
             if doc.exists:
-                return doc.to_dict().get("suppliers", [])
-        except:
-            pass
-    return []
+                return pd.DataFrame(doc.to_dict().get("list", []))
+        except Exception as e:
+            st.error(f"خطأ أثناء تحميل البيانات: {e}")
+    
+    # بيانات افتراضية في حال فشل السحاب
+    return pd.DataFrame(columns=["اسم المورد", "الفئة", "الشخص المسؤول", "رقم الهاتف", "الحالة"])
 
-def save_cloud_data(data_list):
+def save_data_to_cloud(df):
     if db:
         try:
-            doc_ref = db.collection("artifacts").document(app_id)
-            doc_ref.set({"suppliers": data_list})
+            doc_ref = db.collection(COLLECTION_NAME).document(DOCUMENT_ID)
+            # تحويل DataFrame إلى قائمة قواميس للحفظ
+            data_to_save = {"list": df.to_dict('records')}
+            doc_ref.set(data_to_save)
+            return True
         except Exception as e:
-            st.error(f"خطأ في الحفظ السحابي: {e}")
+            st.error(f"❌ فشل الحفظ السحابي: {e}")
+    return False
 
-# قائمة الفئات الافتراضية
-AVAILABLE_CATEGORIES = [
-    "Mécanique", "Électricité", "Plomberie", "PPE / Protection", 
-    "Consommables", "Pièces de rechange", "Outillage", 
-    "Maintenance", "Informatique", "Produits Chimiques", "BTP"
-]
+# تحميل البيانات في حالة الجلسة
+if 'supplier_data' not in st.session_state:
+    st.session_state.supplier_data = load_data_from_cloud()
 
-# 2. وظيفة المعالجة
-def get_clean_records(df_raw, category_name):
-    if df_raw.empty: return []
+# 4. واجهة المستخدم
+st.title("📂 قاعدة بيانات الموردين المركزية")
+st.info("💡 يتم مزامنة كافة التعديلات سحابياً لضمان عدم ضياع البيانات.")
+
+# القائمة الجانبية
+with st.sidebar:
+    st.header("⚙️ العمليات")
     
-    df = df_raw.astype(str).replace(['nan', 'None', 'NaN', 'null'], '')
-    
-    mapping = {
-        'Nom du Fournisseur': ['nom', 'fournisseur', 'designation', 'désignation', 'société', 'company', 'اسم', 'المورد', 'établissement'],
-        'Adresse': ['adresse', 'address', 'lieu', 'wilaya', 'عنوان', 'مقر', 'localisation', 'ville'],
-        'Téléphone': ['tél', 'tel', 'phone', 'fixe', 'هاتف', 'الفاكس', 'fax'],
-        'Mobile': ['mobile', 'mob', 'محمول', 'جوال', 'رقم'],
-        'E-mail': ['email', 'e-mail', 'mail', 'البريد', 'إيميل'],
-        'FAX': ['FAX', 'Fax', 'fax','الفاكس' ,'فاكس']
-    }
+    if db is None:
+        st.warning("⚠️ التطبيق يعمل الآن في 'الوضع المؤقت'. للحفظ الدائم، أضف مفتاح 'textkey' في إعدادات Secrets.")
+    else:
+        st.success("☁️ الاتصال السحابي نشط")
 
-    header_idx = -1
-    col_map = {}
-    for i in range(min(50, len(df))):
-        row = [str(x).lower() for x in df.iloc[i].values]
-        current_map = {}
-        matches = 0
-        for target, keys in mapping.items():
-            for idx, cell in enumerate(row):
-                if any(k in cell for k in keys):
-                    current_map[idx] = target
-                    matches += 1
-                    break
-        if matches >= 1:
-            header_idx, col_map = i, current_map
-            break
-
-    records = []
-    if header_idx != -1:
-        data_rows = df.iloc[header_idx + 1:]
-        for _, row in data_rows.iterrows():
-            record = {'Catégories': category_name}
-            for target in mapping.keys(): record[target] = ""
-            for col_idx, target_name in col_map.items():
-                record[target_name] = str(row.iloc[col_idx]).strip()
+    # إضافة مورد يدوي
+    with st.expander("➕ إضافة مورد جديد"):
+        with st.form("add_form", clear_on_submit=True):
+            n = st.text_input("اسم المورد *")
+            c = st.selectbox("الفئة", ["ميكانيك", "كهرباء", "PPE", "خدمات"])
+            p = st.text_input("رقم الهاتف")
+            s = st.selectbox("الحالة", ["معتمد", "قيد المراجعة"])
             
-            if record.get('Nom du Fournisseur') and record['Nom du Fournisseur'].lower() not in ['nom', 'designation', 'fournisseur', 'اسم']:
-                records.append(record)
-    return records
-
-# 3. إدارة الحالة (Session State) - تم ربطها بالسحاب هنا
-if 'data_list' not in st.session_state:
-    st.session_state.data_list = load_cloud_data()
-
-st.markdown("<h1 class='main-header'>🏢 Gestionnaire des Fournisseurs (Cloud Storage)</h1>", unsafe_allow_html=True)
-
-tab1, tab2 = st.tabs(["📥 Importation Excel", "➕ Ajout Manuel"])
-
-with tab1:
-    uploaded_file = st.file_uploader("Charger un fichier Excel", type=['xlsx'])
-    if uploaded_file:
-        try:
-            xl = pd.ExcelFile(uploaded_file)
-            sheets = st.multiselect("Sélectionnez les feuilles :", xl.sheet_names, default=xl.sheet_names)
-            
-            if st.button("🚀 Fusionner les données"):
-                new_added = 0
-                updated_cats = 0
-                for s in sheets:
-                    df_raw = pd.read_excel(uploaded_file, sheet_name=s, header=None)
-                    records = get_clean_records(df_raw, s)
+            if st.form_submit_button("حفظ"):
+                if n:
+                    new_row = {"اسم المورد": n, "الفئة": c, "الشخص المسؤول": "", "رقم الهاتف": p, "الحالة": s}
+                    st.session_state.supplier_data = pd.concat([st.session_state.supplier_data, pd.DataFrame([new_row])], ignore_index=True)
                     
-                    for rec in records:
-                        name_lower = rec['Nom du Fournisseur'].lower().strip()
-                        existing_idx = next((i for i, item in enumerate(st.session_state.data_list) if item['Nom du Fournisseur'].lower().strip() == name_lower), None)
-                        
-                        if existing_idx is None:
-                            st.session_state.data_list.append(rec)
-                            new_added += 1
-                        else:
-                            current_cats = str(st.session_state.data_list[existing_idx]['Catégories'])
-                            if s.strip() not in [c.strip() for c in current_cats.split('/')]:
-                                st.session_state.data_list[existing_idx]['Catégories'] = f"{current_cats} / {s}"
-                                updated_cats += 1
-                
-                # حفظ في السحاب بعد الدمج
-                save_cloud_data(st.session_state.data_list)
-                st.success(f"✅ Terminé : {new_added} nouveaux fournisseurs et {updated_cats} mises à jour.")
-        except Exception as e:
-            st.error(f"Erreur : {str(e)}")
-
-with tab2:
-    with st.form("manual_entry", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            name = st.text_input("Nom de l'établissement *")
-            selected_cats = st.multiselect("Sélectionner des catégories", AVAILABLE_CATEGORIES)
-            custom_cat = st.text_input("Ou saisir une catégorie personnalisée")
-            tel = st.text_input("Téléphone")
-        with c2:
-            mob = st.text_input("Mobile")
-            mail = st.text_input("E-mail")
-            adr = st.text_area("Adresse")
-        
-        if st.form_submit_button("💾 Enregistrer"):
-            if name:
-                all_cats = list(selected_cats)
-                if custom_cat.strip(): all_cats.append(custom_cat.strip())
-                cat_string = " / ".join(all_cats) if all_cats else "Général"
-                name_lower = name.lower().strip()
-                existing_idx = next((i for i, item in enumerate(st.session_state.data_list) if item['Nom du Fournisseur'].lower().strip() == name_lower), None)
-                
-                if existing_idx is None:
-                    st.session_state.data_list.append({
-                        "Nom du Fournisseur": name, "Catégories": cat_string, 
-                        "Téléphone": tel, "Mobile": mob, "Adresse": adr, "E-mail": mail
-                    })
+                    # حفظ فوري في السحاب
+                    if save_data_to_cloud(st.session_state.supplier_data):
+                        st.success("تم الحفظ في السحاب ✅")
+                        st.rerun()
                 else:
-                    current = str(st.session_state.data_list[existing_idx]['Catégories'])
-                    current_list = [c.strip() for c in current.split('/')]
-                    for c in all_cats:
-                        if c not in current_list: current = f"{current} / {c}"
-                    st.session_state.data_list[existing_idx]['Catégories'] = current
-                
-                # حفظ في السحاب بعد الإضافة اليدوية
-                save_cloud_data(st.session_state.data_list)
-                st.rerun()
+                    st.error("الاسم مطلوب")
 
-# 4. عرض النتائج
-st.divider()
-if st.session_state.data_list:
-    df_final = pd.DataFrame(st.session_state.data_list)
-    st.subheader(f"📋 Liste Unifiée ({len(df_final)} fournisseurs)")
-    
-    search = st.text_input("🔍 Rechercher :")
-    if search:
-        mask = df_final.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
-        df_final = df_final[mask]
+# 5. عرض البيانات والبحث
+search = st.text_input("🔍 ابحث عن مورد...")
+df_display = st.session_state.supplier_data
 
-    st.dataframe(df_final, use_container_width=True, hide_index=True)
-    
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        out = io.BytesIO()
-        df_final.to_excel(out, index=False, engine='openpyxl')
-        st.download_button("📥 Exporter Excel", out.getvalue(), "base_fournisseurs.xlsx")
-    with col2:
-        if st.button("🗑️ Vider la base"):
-            st.session_state.data_list = []
-            save_cloud_data([]) # مسح من السحاب أيضاً
-            st.rerun()
+if search:
+    mask = df_display.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)
+    df_display = df_display[mask]
+
+st.dataframe(df_display, use_container_width=True, hide_index=True)
+
+# أزرار التحكم في الأسفل
+c1, c2 = st.columns([1, 5])
+with c1:
+    if st.button("🗑️ مسح الكل"):
+        st.session_state.supplier_data = pd.DataFrame(columns=["اسم المورد", "الفئة", "الشخص المسؤول", "رقم الهاتف", "الحالة"])
+        save_data_to_cloud(st.session_state.supplier_data)
+        st.rerun()
+
+with c2:
+    # تصدير Excel
+    buffer = io.BytesIO()
+    df_display.to_excel(buffer, index=False)
+    st.download_button("📥 تحميل كملف Excel", buffer.getvalue(), "suppliers_backup.xlsx")
