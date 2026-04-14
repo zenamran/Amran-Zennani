@@ -4,3 +4,4 @@ openpyxl
 google-cloud-firestore
 google-auth
 protobuf
+firebase-admin
