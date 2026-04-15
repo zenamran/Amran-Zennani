@@ -5,40 +5,61 @@ import pandas as pd
 import io
 import json
 
-# استبدل الجزء الخاص بالتهيئة بهذا الكود:
+import firebase_admin
+from firebase_admin import credentials, firestore
+import streamlit as st
+import pandas as pd
+import io
+import json
+
+# --- 1. تهيئة Firebase في أعلى الملف ---
+# نضع db في البداية لضمان وصول الدوال إليه
 if not firebase_admin._apps:
     try:
-        # جلب البيانات من السيكرتس
         secrets_raw = st.secrets["firebase_json"]
-        
-        # التأكد من تحويل النص إلى قاموس (Dictionary)
         if isinstance(secrets_raw, str):
-            cred_info = json.loads(secrets_raw, strict=False) # strict=False تحل مشاكل رموز التحكم
+            cred_info = json.loads(secrets_raw, strict=False)
         else:
-            # في بعض الأحيان Streamlit يحول الـ JSON تلقائياً إلى Dictionary
             cred_info = dict(secrets_raw)
             
         cred = credentials.Certificate(cred_info)
         firebase_admin.initialize_app(cred)
     except Exception as e:
-        st.error(f"خطأ في تهيئة Firebase: {e}")
-        st.stop() # إيقاف التطبيق إذا فشل الاتصال لمنع أخطاء الـ Traceback لاحقاً
-# --- وظائف Firebase المحسنة ---
+        st.error(f"Erreur Initialisation Firebase: {e}")
+        st.stop()
+
+# تعريف db كمتغير عام
+db = firestore.client()
+
+# --- 2. تعريف الدوال التي تستخدم db ---
 
 def load_from_firebase():
-    """تحميل البيانات من Firebase"""
+    """تحميل البيانات"""
     try:
         docs = db.collection("suppliers").stream()
-        data = [doc.to_dict() for doc in docs]
-        return data
-    except Exception:
+        return [doc.to_dict() for doc in docs]
+    except Exception as e:
+        st.error(f"Erreur de chargement: {e}")
         return []
 
 def save_to_firebase_single(item):
-    """حفظ مورد واحد أو تحديثه بناءً على اسمه لمنع التكرار وبطء المسح الكامل"""
-    # نستخدم اسم المورد كمعرف (Document ID) لمنع التكرار
-    doc_id = item['Nom du Fournisseur'].lower().strip().replace("/", "_")
-    db.collection("suppliers").document(doc_id).set(item)
+    """حفظ أو تحديث مورد واحد"""
+    try:
+        # تأكد من وجود اسم للمورد لتجنب خطأ الـ ID
+        if item.get('Nom du Fournisseur'):
+            doc_id = str(item['Nom du Fournisseur']).lower().strip().replace("/", "_")
+            db.collection("suppliers").document(doc_id).set(item)
+    except Exception as e:
+        st.error(f"Erreur sauvegarde Firestore: {e}")
+
+# --- 3. باقي إعدادات واجهة Streamlit ---
+
+st.set_page_config(page_title="Système de Gestion", layout="wide")
+
+if 'data_list' not in st.session_state:
+    st.session_state.data_list = load_from_firebase()
+
+# ... (باقي كود الواجهة والتبويبات Tabs) ...
 
 # 2. الإعدادات العامة
 st.set_page_config(page_title="Système de Gestion des Fournisseurs", page_icon="🏢", layout="wide")
