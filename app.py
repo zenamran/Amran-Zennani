@@ -10,7 +10,6 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
-
 # 🔥 تحميل البيانات
 def load_from_firebase():
     docs = db.collection("suppliers").stream()
