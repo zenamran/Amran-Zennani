@@ -70,11 +70,22 @@ def get_clean_records(df_raw, category_name):
             if record.get('Nom du Fournisseur') and record['Nom du Fournisseur'].lower() not in ['nom', 'designation', 'fournisseur', 'اسم']:
                 records.append(record)
     return records
-
+def load_from_firebase():
+    docs = db.collection("suppliers").stream()
+    data = []
+    for doc in docs:
+        data.append(doc.to_dict())
+    return data
 # 3. إدارة الحالة (Session State)
 if 'data_list' not in st.session_state:
-    st.session_state.data_list = []
+    st.session_state.data_list = load_from_firebase()
+def save_to_firebase(data):
+    docs = db.collection("suppliers").stream()
+    for doc in docs:
+        doc.reference.delete()
 
+    for item in data:
+        db.collection("suppliers").add(item)
 st.markdown("<h1 class='main-header'>🏢 Gestionnaire des Fournisseurs (Multi-Catégories)</h1>", unsafe_allow_html=True)
 
 tab1, tab2 = st.tabs(["📥 Importation Excel", "➕ Ajout Manuel"])
@@ -108,6 +119,7 @@ with tab1:
                             if s.strip() not in [c.strip() for c in current_cats.split('/')]:
                                 st.session_state.data_list[existing_idx]['Catégories'] = f"{current_cats} / {s}"
                                 updated_cats += 1
+              save_to_firebase(st.session_state.data_list)                  
                 
                 st.success(f"✅ Terminé : {new_added} nouveaux fournisseurs et {updated_cats} mises à jour de catégories.")
         except Exception as e:
@@ -154,6 +166,7 @@ with tab2:
                     
                     st.session_state.data_list[existing_idx]['Catégories'] = current
                     st.info("تم تحديث فئات المورد الموجود مسبقاً")
+          save_to_firebase(st.session_state.data_list)
             st.rerun()
 if not firebase_admin._apps:
     cred = credentials.Certificate("firebase_key.json")
@@ -181,4 +194,5 @@ if st.session_state.data_list:
     with col2:
         if st.button("🗑️ Vider la base"):
             st.session_state.data_list = []
+save_to_firebase([])
             st.rerun()
