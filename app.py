@@ -144,7 +144,7 @@ with tab1:
                         save_to_firebase_single(st.session_state.data_list[existing_idx])
                 
                 progress_bar.progress((idx + 1) / len(sheets))
-            st.success("✅ تم التحديث والمزامنة مع Firebase")
+            st.success("Mis à jour et synchronisé avec Firebase✅")
             st.rerun()
 
 with tab2:
