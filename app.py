@@ -3,10 +3,10 @@ from firebase_admin import credentials, firestore
 import streamlit as st
 import pandas as pd
 import io
-
+import json
 # 🔥 اتصال Firebase
 if not firebase_admin._apps:
-    cred = credentials.Certificate(dict(st.secrets["firebase"]))
+cred = credentials.Certificate(json.loads(st.secrets["firebase_json"]))
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
