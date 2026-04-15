@@ -4,14 +4,6 @@ import streamlit as st
 import pandas as pd
 import io
 import json
-
-import firebase_admin
-from firebase_admin import credentials, firestore
-import streamlit as st
-import pandas as pd
-import io
-import json
-
 # --- 1. تهيئة Firebase في أعلى الملف ---
 # نضع db في البداية لضمان وصول الدوال إليه
 if not firebase_admin._apps:
@@ -77,7 +69,7 @@ AVAILABLE_CATEGORIES = [
     "Maintenance", "Informatique", "Produits Chemicals", "BTP"
 ]
 
-# --- منطق معالجة البيانات (get_clean_records كما هو في كودك) ---
+# --- منطق معالجة البيانات ---
 def get_clean_records(df_raw, category_name):
     if df_raw.empty: return []
     df = df_raw.astype(str).replace(['nan', 'None', 'NaN', 'null'], '')
@@ -130,7 +122,7 @@ with tab1:
         xl = pd.ExcelFile(uploaded_file)
         sheets = st.multiselect("Sélectionnez les feuilles :", xl.sheet_names, default=xl.sheet_names)
         
-        if st.button("🚀 Fusionner ورفع البيانات"):
+        if st.button("🚀 Fusionner"):
             progress_bar = st.progress(0)
             for idx, s in enumerate(sheets):
                 df_raw = pd.read_excel(uploaded_file, sheet_name=s, header=None)
@@ -159,11 +151,15 @@ with tab2:
     with st.form("manual_form"):
         col1, col2 = st.columns(2)
         with col1:
-            name = st.text_input("Nom de l'établissement *")
+            name = st.text_input("Nom de l'établissement")
             cats = st.multiselect("Catégories", AVAILABLE_CATEGORIES)
+            Adresse = st.text_input("Adresse") 
+            
         with col2:
-            tel = st.text_input("Téléphone")
+            tel = st.text_input("Téléphone FIX")
+            Mobile = st.text_input("Téléphone Mobile")
             email = st.text_input("E-mail")
+            FAX = st.text_input("FAX")
         
         if st.form_submit_button("💾 Enregistrer"):
             if name:
@@ -171,7 +167,10 @@ with tab2:
                     "Nom du Fournisseur": name,
                     "Catégories": " / ".join(cats),
                     "Téléphone": tel,
-                    "E-mail": email
+                    "E-mail": email,
+                    "Adresse": Adresse,
+                    "Mobile": Mobile,
+                    "FAX": FAX
                 }
                 save_to_firebase_single(new_item)
                 st.session_state.data_list = load_from_firebase() # تحديث القائمة
@@ -185,14 +184,14 @@ st.divider()
 if st.session_state.data_list:
     df = pd.DataFrame(st.session_state.data_list)
     
-    search = st.text_input("🔍 Rechercher (Nom أو Catégorie) :")
+    search = st.text_input("🔍 Rechercher (Nom OU Catégorie) :")
     if search:
         df = df[df.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)]
     
     st.subheader(f"📋 Liste des fournisseurs ({len(df)})")
     st.dataframe(df, use_container_width=True, hide_index=True)
     
-    # زر الحذف (اختياري - للحذف من القائمة فقط أو من Firebase)
+    # زر الحذف (Firebase)
     if st.button("🗑️ Vider l'affichage"):
         st.session_state.data_list = []
         st.rerun()
