@@ -64,9 +64,9 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 AVAILABLE_CATEGORIES = [
-    "Mécanique", "Électricité", "Plomberie", "PPE / Protection", 
-    "Consommables", "Pièces de rechange", "Outillage", 
-    "Maintenance", "Informatique", "Produits Chemicals", "BTP"
+    "Vêtements", "Combinaisons de Travail", "Chaussures de Sécurité", "Vestes en Cuir", 
+    "Pneumatique ", "Lubrifiants ", "Batteries et Accumulateurs", 
+    "Les EPI", "Equipements de Reprographie", "Equipements Electro-ménagers", "Fourniture de Bureau", "Cons & Acc inf"
 ]
 
 # --- منطق معالجة البيانات ---
@@ -174,10 +174,10 @@ with tab2:
                 }
                 save_to_firebase_single(new_item)
                 st.session_state.data_list = load_from_firebase() # تحديث القائمة
-                st.success("✅ تم الحفظ بنجاح")
+                st.success("Enregistré avec succès✅")
                 st.rerun()
             else:
-                st.error("يرجى إدخال اسم المورد")
+                st.error("Veuillez entrer le nom du fournisseur")
 
 # --- عرض النتائج مع ميزة البحث ---
 st.divider()
