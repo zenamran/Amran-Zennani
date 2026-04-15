@@ -3,26 +3,6 @@ from firebase_admin import credentials, firestore
 import streamlit as st
 import pandas as pd
 import io
-import firebase_admin
-from firebase_admin import credentials, firestore
-import streamlit as st
-import pandas as pd
-import io
-
-# --- تصحيح: تهيئة Firebase يجب أن تكون في البداية وقبل استدعاء db ---
-if not firebase_admin._apps:
-    cred = credentials.Certificate("firebase_key.json")
-    firebase_admin.initialize_app(cred)
-
-db = firestore.client()
-# -----------------------------------------------------------
-
-# 1. الإعدادات العامة للصفحة
-st.set_page_config(
-    page_title="Système de Gestion des Fournisseurs",
-    page_icon="🏢",
-    layout="wide"
-)
 
 # 1. الإعدادات العامة للصفحة
 st.set_page_config(
