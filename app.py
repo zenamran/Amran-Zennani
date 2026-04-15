@@ -23,7 +23,7 @@ def save_to_firebase(data):
     docs = db.collection("suppliers").stream()
     for doc in docs:
         doc.reference.delete()
-
+        
     for item in data:
         db.collection("suppliers").add(item)
 
