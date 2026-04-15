@@ -4,6 +4,30 @@ import streamlit as st
 import pandas as pd
 import io
 
+# 🔥 اتصال Firebase
+if not firebase_admin._apps:
+    cred = credentials.Certificate("firebase_key.json")
+    firebase_admin.initialize_app(cred)
+
+db = firestore.client()
+
+# 🔥 تحميل البيانات
+def load_from_firebase():
+    docs = db.collection("suppliers").stream()
+    data = []
+    for doc in docs:
+        data.append(doc.to_dict())
+    return data
+
+# 🔥 حفظ البيانات
+def save_to_firebase(data):
+    docs = db.collection("suppliers").stream()
+    for doc in docs:
+        doc.reference.delete()
+
+    for item in data:
+        db.collection("suppliers").add(item)
+
 # 1. الإعدادات العامة للصفحة
 st.set_page_config(
     page_title="Système de Gestion des Fournisseurs",
@@ -20,14 +44,14 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# قائمة الفئات الافتراضية
+# قائمة الفئات
 AVAILABLE_CATEGORIES = [
     "Mécanique", "Électricité", "Plomberie", "PPE / Protection", 
     "Consommables", "Pièces de rechange", "Outillage", 
     "Maintenance", "Informatique", "Produits Chimiques", "BTP"
 ]
 
-# 2. وظيفة المعالجة - تحويل البيانات لسجلات ذكية تدمج الفئات
+# معالجة Excel
 def get_clean_records(df_raw, category_name):
     if df_raw.empty: return []
     
@@ -70,129 +94,59 @@ def get_clean_records(df_raw, category_name):
             if record.get('Nom du Fournisseur') and record['Nom du Fournisseur'].lower() not in ['nom', 'designation', 'fournisseur', 'اسم']:
                 records.append(record)
     return records
-def load_from_firebase():
-    docs = db.collection("suppliers").stream()
-    data = []
-    for doc in docs:
-        data.append(doc.to_dict())
-    return data
-# 3. إدارة الحالة (Session State)
+
+# 🔥 تحميل أولي من Firebase
 if 'data_list' not in st.session_state:
     st.session_state.data_list = load_from_firebase()
-def save_to_firebase(data):
-    docs = db.collection("suppliers").stream()
-    for doc in docs:
-        doc.reference.delete()
 
-    for item in data:
-        db.collection("suppliers").add(item)
-st.markdown("<h1 class='main-header'>🏢 Gestionnaire des Fournisseurs (Multi-Catégories)</h1>", unsafe_allow_html=True)
+st.markdown("<h1 class='main-header'>🏢 Gestionnaire des Fournisseurs</h1>", unsafe_allow_html=True)
 
 tab1, tab2 = st.tabs(["📥 Importation Excel", "➕ Ajout Manuel"])
 
+# 📥 Import Excel
 with tab1:
     uploaded_file = st.file_uploader("Charger un fichier Excel", type=['xlsx'])
     if uploaded_file:
-        try:
-            xl = pd.ExcelFile(uploaded_file)
-            sheets = st.multiselect("Sélectionnez les feuilles (Les noms des feuilles seront les catégories) :", xl.sheet_names, default=xl.sheet_names)
-            
-            if st.button("🚀 Fusionner les données"):
-                new_added = 0
-                updated_cats = 0
-                for s in sheets:
-                    df_raw = pd.read_excel(uploaded_file, sheet_name=s, header=None)
-                    records = get_clean_records(df_raw, s)
-                    
-                    for rec in records:
-                        name_lower = rec['Nom du Fournisseur'].lower().strip()
-                        # البحث عن المورد الحالي في القائمة
-                        existing_idx = next((i for i, item in enumerate(st.session_state.data_list) if item['Nom du Fournisseur'].lower().strip() == name_lower), None)
-                        
-                        if existing_idx is None:
-                            # مورد جديد تماماً
-                            st.session_state.data_list.append(rec)
-                            new_added += 1
-                        else:
-                            # المورد موجود، نقوم بدمج الفئة الجديدة مع الفئات السابقة
-                            current_cats = str(st.session_state.data_list[existing_idx]['Catégories'])
-                            if s.strip() not in [c.strip() for c in current_cats.split('/')]:
-                                st.session_state.data_list[existing_idx]['Catégories'] = f"{current_cats} / {s}"
-                                updated_cats += 1
-              save_to_firebase(st.session_state.data_list)                  
-                
-                st.success(f"✅ Terminé : {new_added} nouveaux fournisseurs et {updated_cats} mises à jour de catégories.")
-        except Exception as e:
-            st.error(f"Erreur : {str(e)}")
-
-with tab2:
-    with st.form("manual_entry", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            name = st.text_input("Nom de l'établissement *")
-            selected_cats = st.multiselect("Sélectionner des catégories", AVAILABLE_CATEGORIES)
-            custom_cat = st.text_input("Ou saisir une catégorie personnalisée (كتابة فئة أخرى)")
-            tel = st.text_input("Téléphone")
-        with c2:
-            mob = st.text_input("Mobile")
-            mail = st.text_input("E-mail")
-            adr = st.text_area("Adresse")
+        xl = pd.ExcelFile(uploaded_file)
+        sheets = st.multiselect("Feuilles :", xl.sheet_names, default=xl.sheet_names)
         
-        if st.form_submit_button("💾 Enregistrer"):
+        if st.button("🚀 Fusionner"):
+            for s in sheets:
+                df_raw = pd.read_excel(uploaded_file, sheet_name=s, header=None)
+                records = get_clean_records(df_raw, s)
+                
+                for rec in records:
+                    name_lower = rec['Nom du Fournisseur'].lower().strip()
+                    existing = next((i for i, item in enumerate(st.session_state.data_list)
+                                     if item['Nom du Fournisseur'].lower().strip() == name_lower), None)
+                    
+                    if existing is None:
+                        st.session_state.data_list.append(rec)
+                    else:
+                        current = str(st.session_state.data_list[existing]['Catégories'])
+                        if s not in current:
+                            st.session_state.data_list[existing]['Catégories'] = f"{current} / {s}"
+
+            save_to_firebase(st.session_state.data_list)
+            st.success("✅ Données enregistrées dans Firebase")
+
+# ➕ Ajout manuel
+with tab2:
+    with st.form("form"):
+        name = st.text_input("Nom *")
+        cats = st.multiselect("Catégories", AVAILABLE_CATEGORIES)
+        tel = st.text_input("Téléphone")
+        if st.form_submit_button("Enregistrer"):
             if name:
-                # دمج الفئات المختارة مع الفئة المكتوبة يدوياً
-                all_cats = list(selected_cats)
-                if custom_cat.strip():
-                    all_cats.append(custom_cat.strip())
-                
-                cat_string = " / ".join(all_cats) if all_cats else "Général"
-                name_lower = name.lower().strip()
-                existing_idx = next((i for i, item in enumerate(st.session_state.data_list) if item['Nom du Fournisseur'].lower().strip() == name_lower), None)
-                
-                if existing_idx is None:
-                    st.session_state.data_list.append({
-                        "Nom du Fournisseur": name, "Catégories": cat_string, 
-                        "Téléphone": tel, "Mobile": mob, "Adresse": adr, "E-mail": mail
-                    })
-                    st.success("Mورد جديد أضيف بنجاح")
-                else:
-                    # دمج الفئات يدوياً إذا أضيف نفس المورد
-                    current = str(st.session_state.data_list[existing_idx]['Catégories'])
-                    current_list = [c.strip() for c in current.split('/')]
-                    
-                    for c in all_cats:
-                        if c not in current_list:
-                            current = f"{current} / {c}"
-                    
-                    st.session_state.data_list[existing_idx]['Catégories'] = current
-                    st.info("تم تحديث فئات المورد الموجود مسبقاً")
-          save_to_firebase(st.session_state.data_list)
-            st.rerun()
-if not firebase_admin._apps:
-    cred = credentials.Certificate("firebase_key.json")
-    firebase_admin.initialize_app(cred)
+                st.session_state.data_list.append({
+                    "Nom du Fournisseur": name,
+                    "Catégories": " / ".join(cats),
+                    "Téléphone": tel
+                })
+                save_to_firebase(st.session_state.data_list)
+                st.success("✅ Ajouté et sauvegardé")
 
-db = firestore.client()
-# 4. عرض النتائج
-st.divider()
+# 📊 Affichage
 if st.session_state.data_list:
-    df_final = pd.DataFrame(st.session_state.data_list)
-    st.subheader(f"📋 Liste Unifiée ({len(df_final)} fournisseurs)")
-    
-    search = st.text_input("🔍 Rechercher un fournisseur ou une catégorie :")
-    if search:
-        mask = df_final.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
-        df_final = df_final[mask]
-
-    st.dataframe(df_final, use_container_width=True, hide_index=True)
-    
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        out = io.BytesIO()
-        df_final.to_excel(out, index=False, engine='openpyxl')
-        st.download_button("📥 Exporter Excel", out.getvalue(), "base_fournisseurs.xlsx")
-    with col2:
-        if st.button("🗑️ Vider la base"):
-            st.session_state.data_list = []
-save_to_firebase([])
-            st.rerun()
+    df = pd.DataFrame(st.session_state.data_list)
+    st.dataframe(df, use_container_width=True)
