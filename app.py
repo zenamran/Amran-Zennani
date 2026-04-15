@@ -5,18 +5,24 @@ import pandas as pd
 import io
 import json
 
-# 1. تهيئة Firebase (باستخدام Secrets)
+# استبدل الجزء الخاص بالتهيئة بهذا الكود:
 if not firebase_admin._apps:
     try:
-        # تأكد من وضع محتوى الملف في Streamlit Secrets تحت اسم firebase_json
-        cred_dict = json.loads(st.secrets["firebase_json"])
-        cred = credentials.Certificate(cred_dict)
+        # جلب البيانات من السيكرتس
+        secrets_raw = st.secrets["firebase_json"]
+        
+        # التأكد من تحويل النص إلى قاموس (Dictionary)
+        if isinstance(secrets_raw, str):
+            cred_info = json.loads(secrets_raw, strict=False) # strict=False تحل مشاكل رموز التحكم
+        else:
+            # في بعض الأحيان Streamlit يحول الـ JSON تلقائياً إلى Dictionary
+            cred_info = dict(secrets_raw)
+            
+        cred = credentials.Certificate(cred_info)
         firebase_admin.initialize_app(cred)
     except Exception as e:
-        st.error(f"خطأ في الاتصال بـ Firebase: {e}")
-
-db = firestore.client()
-
+        st.error(f"خطأ في تهيئة Firebase: {e}")
+        st.stop() # إيقاف التطبيق إذا فشل الاتصال لمنع أخطاء الـ Traceback لاحقاً
 # --- وظائف Firebase المحسنة ---
 
 def load_from_firebase():
