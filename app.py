@@ -151,7 +151,7 @@ with tab2:
     with st.form("manual_form"):
         col1, col2 = st.columns(2)
         with col1:
-            name = st.text_input("Nom de l'établissement")
+            name = st.text_input("Nom de l'établissement(Nom du Fournisseur)")
             cats = st.multiselect("Catégories", AVAILABLE_CATEGORIES)
             Adresse = st.text_input("Adresse") 
             
