@@ -180,7 +180,7 @@ with tab2:
 st.divider()
 if st.session_state.data_list:
     df = pd.DataFrame(st.session_state.data_list)
-    df = df[df.apply(lambda row: not row.astype(str).str.lower().str.contains("enterprise").any(), axis=1)]
+    df = df[~df["Nom du Fournisseur"].astype(str).str.lower().str.contains("enterprise test")]
     st.subheader(f"📋 Liste des fournisseurs ({len(df)})")
     st.dataframe(df, use_container_width=True, hide_index=True)
 
