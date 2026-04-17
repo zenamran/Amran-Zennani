@@ -199,7 +199,7 @@ if st.session_state.data_list:
 if st.button("🧹 Supprimer Enterprise Test définitivement"):
     for item in st.session_state.data_list:
         name = str(item.get("Nom du Fournisseur", "")).lower()
-        if "Test" in name:
+        if "Entreprise Test" in name:
             delete_from_firebase(item["Nom du Fournisseur"])
     st.session_state.data_list = load_from_firebase()
     st.success("تم تنظيف البيانات نهائياً ✅")
