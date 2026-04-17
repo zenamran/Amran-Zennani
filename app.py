@@ -185,8 +185,8 @@ if st.session_state.data_list:
 df = df[~df.astype(str).apply(lambda x: x.str.contains("enterprise test", case=False)).any(axis=1)]
     
    # search = st.text_input("🔍 Rechercher :")
-    if search:
-        df = df[df.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)]
+   # if search:
+     #   df = df[df.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)]
     
     st.subheader(f"📋 Liste des fournisseurs ({len(df)})")
     st.dataframe(df, use_container_width=True, hide_index=True)
