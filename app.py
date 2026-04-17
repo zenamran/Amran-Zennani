@@ -180,6 +180,9 @@ with tab2:
 st.divider()
 if st.session_state.data_list:
     df = pd.DataFrame(st.session_state.data_list)
+
+# إزالة Enterprise test من العرض
+df = df[~df.astype(str).apply(lambda x: x.str.contains("enterprise test", case=False)).any(axis=1)]
     
     search = st.text_input("🔍 Rechercher :")
     if search:
