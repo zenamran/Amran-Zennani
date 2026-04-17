@@ -196,14 +196,6 @@ if st.session_state.data_list:
         st.session_state.data_list = load_from_firebase()
         st.success("Fournisseur supprimé avec succès ✅")
         st.rerun()
-if st.button("🧹 Supprimer Enterprise Test définitivement"):
-    for item in st.session_state.data_list:
-        name = str(item.get("Nom du Fournisseur", "")).lower()
-        if "Entreprise Test" in name:
-            delete_from_firebase(item["Nom du Fournisseur"])
-    st.session_state.data_list = load_from_firebase()
-    st.success("تم تنظيف البيانات نهائياً ✅")
-    st.rerun()
     # زر تفريغ العرض فقط
     if st.button("🗑️ Vider l'affichage"):
         st.session_state.data_list = []
