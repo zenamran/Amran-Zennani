@@ -180,7 +180,7 @@ with tab2:
 st.divider()
 if st.session_state.data_list:
     df = pd.DataFrame(st.session_state.data_list)
-    df = df[~df["Nom du Fournisseur"].astype(str).str.lower().str.contains("enterprise test")]
+    
     st.subheader(f"📋 Liste des fournisseurs ({len(df)})")
     st.dataframe(df, use_container_width=True, hide_index=True)
 
@@ -201,3 +201,11 @@ if st.session_state.data_list:
     if st.button("🗑️ Vider l'affichage"):
         st.session_state.data_list = []
         st.rerun()
+if st.button("🧹 Supprimer Enterprise Test définitivement"):
+    for item in st.session_state.data_list:
+        name = str(item.get("Nom du Fournisseur", "")).lower()
+        if "enterprise" in name:
+            delete_from_firebase(item["Nom du Fournisseur"])
+    st.session_state.data_list = load_from_firebase()
+    st.success("تم تنظيف البيانات نهائياً ✅")
+    st.rerun()
